@@ -16,22 +16,47 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Token refresh interval: 30 minutes
+const TOKEN_REFRESH_INTERVAL = 30 * 60 * 1000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn, signOut } = useClerkAuth();
+  const { isLoaded, isSignedIn, signOut, getToken } = useClerkAuth();
   const { user: clerkUser } = useUser();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const router = useRouter();
-  
+
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Sync Clerk user with Appwrite user
+  // Bridge Clerk JWT to Appwrite session
+  const bridgeClerkToAppwrite = async (): Promise<void> => {
+    if (!clerkUser) return;
+
+    try {
+      // Get default Clerk JWT (no template)
+      const clerkJwt = await getToken();
+
+      if (clerkJwt) {
+        // Set Appwrite session with Clerk JWT
+        await AppwriteService.setSession(clerkJwt);
+        console.log('Clerk JWT bridged to Appwrite successfully');
+      }
+    } catch (error) {
+      console.error('Failed to bridge Clerk to Appwrite:', error);
+      throw error;
+    }
+  };
+
+  // Sync Clerk user with Appwrite user and bridge sessions
   useEffect(() => {
     if (!isLoaded) return;
 
     const syncUser = async () => {
       if (isSignedIn && clerkUser) {
         try {
+          // First, bridge Clerk session to Appwrite
+          await bridgeClerkToAppwrite();
+
           // Try to get user from cache first
           const cachedUser = CacheService.getUser();
           const clerkUserId = clerkUser.id;
@@ -71,15 +96,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     syncUser();
   }, [isLoaded, isSignedIn, clerkUser]);
 
-  // Handle routing based on auth state
+  // Automatic token refresh
   useEffect(() => {
-    if (!isLoaded || loading) return;
+    if (!isSignedIn || !clerkUser) return;
 
-    if (isSignedIn) {
-      // User is signed in, make sure they're not on login
-      // The login screen handles this itself
-    }
-  }, [isLoaded, isSignedIn, loading]);
+    // Initial bridge (handled in syncUser, but ensure session is fresh)
+    bridgeClerkToAppwrite().catch(console.error);
+
+    // Set up automatic refresh interval
+    const refreshInterval = setInterval(async () => {
+      try {
+        console.log('Refreshing Appwrite session...');
+        await bridgeClerkToAppwrite();
+      } catch (error) {
+        console.error('Failed to refresh Appwrite session:', error);
+      }
+    }, TOKEN_REFRESH_INTERVAL);
+
+    return () => clearInterval(refreshInterval);
+  }, [isSignedIn, clerkUser]);
 
   const signInWithGoogle = async () => {
     try {
@@ -87,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (createdSessionId) {
         await setActive!({ session: createdSessionId });
-        // The useEffect above will handle syncing with Appwrite
+        // The useEffect above will handle bridging and syncing with Appwrite
       } else {
         throw new Error('No session created during OAuth flow');
       }
@@ -99,7 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      // Clear Appwrite session first
+      await AppwriteService.clearSession();
+      // Then sign out from Clerk
       await signOut();
+      // Clear local cache
       CacheService.clearAll();
       setUser(null);
       router.replace('/login');

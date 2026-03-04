@@ -8,12 +8,13 @@ This guide walks you through setting up Clerk Authentication, Appwrite Backend, 
 
 1. [Prerequisites](#prerequisites)
 2. [Clerk Setup](#clerk-setup)
-3. [Google OAuth Setup](#google-oauth-setup)
-4. [Appwrite Setup](#appwrite-setup)
-5. [Gemini AI Setup](#gemini-ai-setup)
-6. [Environment Variables](#environment-variables)
-7. [Testing Your Setup](#testing-your-setup)
-8. [Troubleshooting](#troubleshooting)
+3. [Clerk JWT Configuration for Appwrite](#clerk-jwt-configuration-for-appwrite)
+4. [Google OAuth Setup](#google-oauth-setup)
+5. [Appwrite Setup](#appwrite-setup)
+6. [Gemini AI Setup](#gemini-ai-setup)
+7. [Environment Variables](#environment-variables)
+8. [Testing Your Setup](#testing-your-setup)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -52,6 +53,136 @@ Before starting, ensure you have:
 3. In the **Authorized redirect URLs** section, add:
    - `whispense://oauth-native-callback`
 4. Click **Save**
+
+---
+
+## Clerk JWT Configuration for Appwrite
+
+Since you're using Clerk for authentication and Appwrite for data storage, you need to configure JWT verification so Appwrite trusts Clerk's authentication tokens.
+
+### Step 1: Get Clerk JWT Configuration Values
+
+1. Go to [Clerk Dashboard](https://dashboard.clerk.dev/)
+2. Select your Whispense application
+3. Go to **Configure** → **API Keys**
+4. Scroll down to **Advanced** section
+5. Copy the **JWKS URL** (looks like: `https://clerk.your-app.com/.well-known/jwks.json`)
+6. Copy the **Issuer** URL (looks like: `https://clerk.your-app.com`)
+
+**Alternative: Get from API Settings**
+- Go to **Configure** → **Sessions**
+- Look for **Token verification** or **Custom JWT claims**
+- The issuer and JWKS URLs should be visible there
+
+### Step 2: Configure JWT Provider in Appwrite Cloud
+
+1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
+2. Select your Whispense project
+3. Go to **Auth** → **Security** → **JWT Verification** (or **Settings** → **Security**)
+4. Click **"Add Provider"** or **"New JWT Provider"**
+5. Fill in the form:
+   - **Name**: `Clerk`
+   - **JWKS Endpoint**: Paste the Clerk JWKS URL from Step 1
+   - **Issuer**: Paste the Clerk Issuer URL from Step 1
+   - **Audience**: `https://api.appwrite.io`
+6. Click **Save**
+
+### Step 3: Verify Configuration
+
+1. After saving, the provider should show as **Active**
+2. Test by signing into the app - if configured correctly, Appwrite operations will succeed
+3. Check Appwrite Console → Auth → Sessions - you should see active sessions after signing in
+
+### How It Works
+
+1. User signs in with Google via Clerk
+2. Clerk issues a JWT token to the app
+3. App passes this JWT to Appwrite via `client.setSession(jwt)`
+4. Appwrite validates the JWT against Clerk's JWKS endpoint
+5. If valid, Appwrite creates an authenticated session
+6. All subsequent Appwrite API calls use this session automatically
+
+### Troubleshooting JWT Issues
+
+**Error: "Invalid JWT" or "Session not found"**
+- Verify the JWKS URL is correct and accessible
+- Check that the Issuer URL matches exactly (including https://)
+- Ensure the Clerk application is the same one used in your app
+
+**Error: "Permission denied" on Appwrite operations**
+- Check that collection permissions are set correctly
+- Verify `user_id` field in documents matches the Clerk user ID
+- Make sure JWT verification is enabled and active in Appwrite
+
+**Sessions not persisting**
+- The app automatically refreshes the JWT every 30 minutes
+- Check that `getToken()` is being called correctly in AuthContext
+- Verify `client.setSession()` is being called after sign-in
+
+---
+
+## Clerk JWT Configuration for Appwrite
+
+Since you're using Clerk for authentication and Appwrite for data storage, you need to configure JWT verification so Appwrite trusts Clerk's authentication tokens.
+
+### Step 1: Get Clerk JWT Configuration Values
+
+1. Go to [Clerk Dashboard](https://dashboard.clerk.dev/)
+2. Select your Whispense application
+3. Go to **Configure** → **API Keys**
+4. Scroll down to **Advanced** section
+5. Copy the **JWKS URL** (looks like: `https://clerk.your-app.com/.well-known/jwks.json`)
+6. Copy the **Issuer** URL (looks like: `https://clerk.your-app.com`)
+
+**Alternative: Get from API Settings**
+- Go to **Configure** → **Sessions**
+- Look for **Token verification** or **Custom JWT claims**
+- The issuer and JWKS URLs should be visible there
+
+### Step 2: Configure JWT Provider in Appwrite Cloud
+
+1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
+2. Select your Whispense project
+3. Go to **Auth** → **Security** → **JWT Verification** (or **Settings** → **Security**)
+4. Click **"Add Provider"** or **"New JWT Provider"**
+5. Fill in the form:
+   - **Name**: `Clerk`
+   - **JWKS Endpoint**: Paste the Clerk JWKS URL from Step 1
+   - **Issuer**: Paste the Clerk Issuer URL from Step 1
+   - **Audience**: `https://api.appwrite.io`
+6. Click **Save**
+
+### Step 3: Verify Configuration
+
+1. After saving, the provider should show as **Active**
+2. Test by signing into the app - if configured correctly, Appwrite operations will succeed
+3. Check Appwrite Console → Auth → Sessions - you should see active sessions after signing in
+
+### How It Works
+
+1. User signs in with Google via Clerk
+2. Clerk issues a JWT token to the app
+3. App passes this JWT to Appwrite via `client.setSession(jwt)`
+4. Appwrite validates the JWT against Clerk's JWKS endpoint
+5. If valid, Appwrite creates an authenticated session
+6. All subsequent Appwrite API calls use this session automatically
+
+### Troubleshooting JWT Issues
+
+**Error: "Invalid JWT" or "Session not found"**
+- Verify the JWKS URL is correct and accessible
+- Check that the Issuer URL matches exactly (including https://)
+- Ensure the Clerk application is the same one used in your app
+
+**Error: "Permission denied" on Appwrite operations**
+- Check that collection permissions are set correctly
+- Verify `user_id` field in documents matches the Clerk user ID
+- Make sure JWT verification is enabled and active in Appwrite
+
+**Sessions not persisting**
+- The app automatically refreshes the JWT every 30 minutes
+- Check that `getToken()` is being called correctly in AuthContext
+- Verify `client.setSession()` is being called after sign-in
 
 ---
 
@@ -325,8 +456,10 @@ grep -E "^EXPO_PUBLIC_" .env | wc -l
 2. Press `a` for Android
 3. You should see the login screen with "Sign in with Google" button
 4. Tap it - should open Google sign-in flow
-5. After signing in, check Clerk Dashboard → Users
-   - Your email should appear here
+5. After signing in, check:
+   - **Clerk Dashboard** → Users → Your email should appear
+   - **Appwrite Console** → Auth → Sessions → Should show an active session
+   - **Metro logs** → Should see "Clerk JWT bridged to Appwrite successfully"
 
 ### Step 3: Test Appwrite Connection
 
