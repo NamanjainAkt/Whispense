@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth as useClerkAuth, useUser, useOAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
+import { Client, Functions, Account } from 'appwrite';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
 import type { User } from '../types';
@@ -16,46 +17,83 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Token refresh interval: 30 minutes
-const TOKEN_REFRESH_INTERVAL = 30 * 60 * 1000;
+// Appwrite client for function calls (no session needed initially)
+const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
+const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+
+const client = new Client()
+  .setEndpoint(APPWRITE_ENDPOINT)
+  .setProject(APPWRITE_PROJECT_ID);
+
+const functions = new Functions(client);
+const account = new Account(client);
+
+// Function ID for clerk-auth (you'll get this after deploying)
+const CLERK_AUTH_FUNCTION_ID = 'clerk-auth'; // Update this after deployment
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn, signOut, getToken } = useClerkAuth();
+  const { isLoaded, isSignedIn, signOut } = useClerkAuth();
   const { user: clerkUser } = useUser();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const router = useRouter();
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [appwriteSessionCreated, setAppwriteSessionCreated] = useState(false);
 
-  // Bridge Clerk JWT to Appwrite session
+  // Bridge Clerk to Appwrite via Function
   const bridgeClerkToAppwrite = async (): Promise<void> => {
     if (!clerkUser) return;
 
     try {
-      // Get default Clerk JWT (no template)
-      const clerkJwt = await getToken();
+      console.log('Calling clerk-auth function...');
 
-      if (clerkJwt) {
-        // Set Appwrite session with Clerk JWT
-        await AppwriteService.setSession(clerkJwt);
-        console.log('Clerk JWT bridged to Appwrite successfully');
+      // Call the clerk-auth function
+      const execution = await functions.createExecution(
+        CLERK_AUTH_FUNCTION_ID,
+        JSON.stringify({
+          userId: clerkUser.id,
+          email: clerkUser.primaryEmailAddress?.emailAddress,
+          name: clerkUser.fullName || clerkUser.firstName,
+        }),
+        false, // async = false (wait for result)
+        '/',   // path
+        'POST' // method
+      );
+
+      const response = JSON.parse(execution.responseBody);
+      console.log('Function response:', response);
+
+      if (!response.success) {
+        throw new Error(response.message || 'Function failed');
       }
+
+      // Create Appwrite session using the token secret
+      await account.createSession(
+        response.userId,
+        response.tokenSecret
+      );
+
+      console.log('Appwrite session created successfully');
+      setAppwriteSessionCreated(true);
+
     } catch (error) {
       console.error('Failed to bridge Clerk to Appwrite:', error);
       throw error;
     }
   };
 
-  // Sync Clerk user with Appwrite user and bridge sessions
+  // Sync Clerk user with Appwrite user
   useEffect(() => {
     if (!isLoaded) return;
 
     const syncUser = async () => {
       if (isSignedIn && clerkUser) {
         try {
-          // First, bridge Clerk session to Appwrite
-          await bridgeClerkToAppwrite();
+          // Bridge Clerk to Appwrite first
+          if (!appwriteSessionCreated) {
+            await bridgeClerkToAppwrite();
+          }
 
           // Try to get user from cache first
           const cachedUser = CacheService.getUser();
@@ -71,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setUser(appwriteUser);
               CacheService.setUser(appwriteUser);
             } else {
-              // Create new user in Appwrite
+              // Create new user in Appwrite database (not auth)
               const newUser = await AppwriteService.createUser({
                 id: clerkUserId,
                 name: clerkUser.fullName || clerkUser.firstName || 'User',
@@ -88,33 +126,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUser(null);
         CacheService.deleteUser();
+        setAppwriteSessionCreated(false);
       }
 
       setLoading(false);
     };
 
     syncUser();
-  }, [isLoaded, isSignedIn, clerkUser]);
-
-  // Automatic token refresh
-  useEffect(() => {
-    if (!isSignedIn || !clerkUser) return;
-
-    // Initial bridge (handled in syncUser, but ensure session is fresh)
-    bridgeClerkToAppwrite().catch(console.error);
-
-    // Set up automatic refresh interval
-    const refreshInterval = setInterval(async () => {
-      try {
-        console.log('Refreshing Appwrite session...');
-        await bridgeClerkToAppwrite();
-      } catch (error) {
-        console.error('Failed to refresh Appwrite session:', error);
-      }
-    }, TOKEN_REFRESH_INTERVAL);
-
-    return () => clearInterval(refreshInterval);
-  }, [isSignedIn, clerkUser]);
+  }, [isLoaded, isSignedIn, clerkUser, appwriteSessionCreated]);
 
   const signInWithGoogle = async () => {
     try {
@@ -134,13 +153,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      // Clear Appwrite session first
-      await AppwriteService.clearSession();
-      // Then sign out from Clerk
+      // Clear Appwrite session
+      try {
+        await account.deleteSessions();
+      } catch (e) {
+        console.log('No Appwrite session to clear');
+      }
+
+      // Sign out from Clerk
       await signOut();
+
       // Clear local cache
       CacheService.clearAll();
       setUser(null);
+      setAppwriteSessionCreated(false);
       router.replace('/login');
     } catch (error) {
       console.error('Logout error:', error);

@@ -23,19 +23,6 @@ const databases = new Databases(client);
 const account = new Account(client);
 
 export const AppwriteService = {
-  // Session Management
-  setSession: async (jwt: string): Promise<void> => {
-    await client.setSession(jwt);
-  },
-
-  clearSession: async (): Promise<void> => {
-    try {
-      await account.deleteSessions();
-    } catch (error) {
-      console.log('No active session to clear');
-    }
-  },
-
   // Account
   getCurrentUser: async () => {
     return await account.get();

@@ -56,133 +56,116 @@ Before starting, ensure you have:
 
 ---
 
-## Clerk JWT Configuration for Appwrite
+## Clerk-Appwrite Bridge (Custom Token Auth)
 
-Since you're using Clerk for authentication and Appwrite for data storage, you need to configure JWT verification so Appwrite trusts Clerk's authentication tokens.
-
-### Step 1: Get Clerk JWT Configuration Values
-
-1. Go to [Clerk Dashboard](https://dashboard.clerk.dev/)
-2. Select your Whispense application
-3. Go to **Configure** → **API Keys**
-4. Scroll down to **Advanced** section
-5. Copy the **JWKS URL** (looks like: `https://clerk.your-app.com/.well-known/jwks.json`)
-6. Copy the **Issuer** URL (looks like: `https://clerk.your-app.com`)
-
-**Alternative: Get from API Settings**
-- Go to **Configure** → **Sessions**
-- Look for **Token verification** or **Custom JWT claims**
-- The issuer and JWKS URLs should be visible there
-
-### Step 2: Configure JWT Provider in Appwrite Cloud
-
-1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
-2. Select your Whispense project
-3. Go to **Auth** → **Security** → **JWT Verification** (or **Settings** → **Security**)
-4. Click **"Add Provider"** or **"New JWT Provider"**
-5. Fill in the form:
-   - **Name**: `Clerk`
-   - **JWKS Endpoint**: Paste the Clerk JWKS URL from Step 1
-   - **Issuer**: Paste the Clerk Issuer URL from Step 1
-   - **Audience**: `https://api.appwrite.io`
-6. Click **Save**
-
-### Step 3: Verify Configuration
-
-1. After saving, the provider should show as **Active**
-2. Test by signing into the app - if configured correctly, Appwrite operations will succeed
-3. Check Appwrite Console → Auth → Sessions - you should see active sessions after signing in
+Since you're using Clerk for authentication and Appwrite for data storage, you need to bridge the two systems. We use **Appwrite Custom Token Authentication** via an Appwrite Function.
 
 ### How It Works
 
 1. User signs in with Google via Clerk
-2. Clerk issues a JWT token to the app
-3. App passes this JWT to Appwrite via `client.setSession(jwt)`
-4. Appwrite validates the JWT against Clerk's JWKS endpoint
-5. If valid, Appwrite creates an authenticated session
+2. App calls the `clerk-auth` Appwrite Function
+3. Function creates an Appwrite user (if not exists) with the same ID as Clerk
+4. Function generates a custom token for that user
+5. App creates an Appwrite session using the token secret
 6. All subsequent Appwrite API calls use this session automatically
 
-### Troubleshooting JWT Issues
-
-**Error: "Invalid JWT" or "Session not found"**
-- Verify the JWKS URL is correct and accessible
-- Check that the Issuer URL matches exactly (including https://)
-- Ensure the Clerk application is the same one used in your app
-
-**Error: "Permission denied" on Appwrite operations**
-- Check that collection permissions are set correctly
-- Verify `user_id` field in documents matches the Clerk user ID
-- Make sure JWT verification is enabled and active in Appwrite
-
-**Sessions not persisting**
-- The app automatically refreshes the JWT every 30 minutes
-- Check that `getToken()` is being called correctly in AuthContext
-- Verify `client.setSession()` is being called after sign-in
-
----
-
-## Clerk JWT Configuration for Appwrite
-
-Since you're using Clerk for authentication and Appwrite for data storage, you need to configure JWT verification so Appwrite trusts Clerk's authentication tokens.
-
-### Step 1: Get Clerk JWT Configuration Values
-
-1. Go to [Clerk Dashboard](https://dashboard.clerk.dev/)
-2. Select your Whispense application
-3. Go to **Configure** → **API Keys**
-4. Scroll down to **Advanced** section
-5. Copy the **JWKS URL** (looks like: `https://clerk.your-app.com/.well-known/jwks.json`)
-6. Copy the **Issuer** URL (looks like: `https://clerk.your-app.com`)
-
-**Alternative: Get from API Settings**
-- Go to **Configure** → **Sessions**
-- Look for **Token verification** or **Custom JWT claims**
-- The issuer and JWKS URLs should be visible there
-
-### Step 2: Configure JWT Provider in Appwrite Cloud
+### Step 1: Create the Appwrite Function
 
 1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
 2. Select your Whispense project
-3. Go to **Auth** → **Security** → **JWT Verification** (or **Settings** → **Security**)
-4. Click **"Add Provider"** or **"New JWT Provider"**
-5. Fill in the form:
-   - **Name**: `Clerk`
-   - **JWKS Endpoint**: Paste the Clerk JWKS URL from Step 1
-   - **Issuer**: Paste the Clerk Issuer URL from Step 1
-   - **Audience**: `https://api.appwrite.io`
-6. Click **Save**
+3. Go to **Functions** → **Create Function**
+4. Configure:
+   - **Name**: `clerk-auth`
+   - **Runtime**: `Node.js (node-18.0 or later)`
+   - **Entrypoint**: `src/index.js`
+5. Click **Create**
 
-### Step 3: Verify Configuration
+### Step 2: Deploy the Function Code
 
-1. After saving, the provider should show as **Active**
-2. Test by signing into the app - if configured correctly, Appwrite operations will succeed
-3. Check Appwrite Console → Auth → Sessions - you should see active sessions after signing in
+**Option A: Manual Upload**
 
-### How It Works
+1. In your local project, find the function at:
+   ```
+   appwrite-functions/clerk-auth/
+   ```
+2. Zip the contents (not the folder itself)
+3. In Appwrite Console, go to your function → **Deployments** → **Create Deployment**
+4. Upload the ZIP file
+5. Activate the deployment
 
-1. User signs in with Google via Clerk
-2. Clerk issues a JWT token to the app
-3. App passes this JWT to Appwrite via `client.setSession(jwt)`
-4. Appwrite validates the JWT against Clerk's JWKS endpoint
-5. If valid, Appwrite creates an authenticated session
-6. All subsequent Appwrite API calls use this session automatically
+**Option B: Using Appwrite CLI**
 
-### Troubleshooting JWT Issues
+```bash
+# Install Appwrite CLI
+npm install -g appwrite-cli
 
-**Error: "Invalid JWT" or "Session not found"**
-- Verify the JWKS URL is correct and accessible
-- Check that the Issuer URL matches exactly (including https://)
-- Ensure the Clerk application is the same one used in your app
+# Login
+appwrite login
 
-**Error: "Permission denied" on Appwrite operations**
-- Check that collection permissions are set correctly
-- Verify `user_id` field in documents matches the Clerk user ID
-- Make sure JWT verification is enabled and active in Appwrite
+# Deploy the function
+appwrite deploy function --function-id=clerk-auth
+```
 
-**Sessions not persisting**
-- The app automatically refreshes the JWT every 30 minutes
-- Check that `getToken()` is being called correctly in AuthContext
-- Verify `client.setSession()` is being called after sign-in
+### Step 3: Set Environment Variables
+
+In your function settings, add these environment variables:
+
+1. Go to Function → **Settings** → **Environment Variables**
+2. Add:
+   - `APPWRITE_FUNCTION_ENDPOINT`: `https://sgp.cloud.appwrite.io/v1`
+   - `APPWRITE_FUNCTION_PROJECT_ID`: `69a7401f00079fd976ab`
+   - `APPWRITE_API_KEY`: `standard_...` (your API key)
+
+To get your API key:
+- Go to Appwrite Console → **Overview** → **API Keys**
+- Create a new API key with scopes: `users.write`, `users.read`
+- Copy the key (starts with `standard_`)
+
+### Step 4: Configure Function Permissions
+
+1. Go to Function → **Settings** → **Execute Access**
+2. Add role: `any` (allows anyone to call this function)
+   - This is safe because we're verifying the user via Clerk first
+3. Click **Update**
+
+### Step 5: Update the Function ID in Code
+
+After deploying, check your Function ID in Appwrite Console:
+- Go to Functions → `clerk-auth` → copy the ID (e.g., `clerk-auth` or `65abc123...`)
+
+Update `src/context/AuthContext.tsx`:
+```typescript
+const CLERK_AUTH_FUNCTION_ID = 'clerk-auth'; // Use your actual function ID
+```
+
+### Step 6: Test the Bridge
+
+1. Run the app: `npx expo start`
+2. Sign in with Google
+3. Check Metro logs for:
+   - `"Calling clerk-auth function..."`
+   - `"Appwrite session created successfully"`
+4. Check Appwrite Console → Auth → Sessions - you should see an active session
+
+### Troubleshooting Bridge Issues
+
+**Error: "Function not found"**
+- Verify the function ID in AuthContext matches exactly
+- Check that the function is deployed and active
+
+**Error: "Permission denied" calling function**
+- Ensure Execute Access is set to `any`
+- Check that the function is in the same project
+
+**Error: "Failed to bridge Clerk to Appwrite"**
+- Check function logs in Appwrite Console → Functions → clerk-auth → Logs
+- Verify environment variables are set correctly
+- Ensure API key has `users.write` scope
+
+**Session not created**
+- Verify the function returns `success: true` and a `tokenSecret`
+- Check that `account.createSession()` is being called with correct parameters
+- Ensure token hasn't expired (tokens expire after 15 minutes by default)
 
 ---
 
