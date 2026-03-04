@@ -32,14 +32,14 @@ export default function VoiceScreen() {
 
   const loadCategories = async () => {
     if (!user) return;
-    const cached = CacheService.getCategories();
+    const cached = await CacheService.getCategories();
     if (cached.length > 0) {
       setCategories(cached);
     } else {
       try {
         const appwriteCategories = await AppwriteService.getCategories(user.id);
         setCategories(appwriteCategories);
-        CacheService.setCategories(appwriteCategories);
+        await CacheService.setCategories(appwriteCategories);
       } catch (e) {
         console.error('Error loading categories:', e);
       }
@@ -125,7 +125,7 @@ export default function VoiceScreen() {
         date: new Date().toISOString(),
       });
 
-      CacheService.addExpense(expense);
+      await CacheService.addExpense(expense);
 
       // Reset
       setStatus('idle');

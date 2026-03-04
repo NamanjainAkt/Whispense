@@ -36,9 +36,9 @@ export default function InsightsScreen() {
     if (!user) return;
 
     // Load from cache
-    const cachedExpenses = CacheService.getExpenses();
-    const cachedCategories = CacheService.getCategories();
-    const cachedInsights = CacheService.getInsightsCache();
+    const cachedExpenses = await CacheService.getExpenses();
+    const cachedCategories = await CacheService.getCategories();
+    const cachedInsights = await CacheService.getInsightsCache();
 
     setExpenses(cachedExpenses);
     setCategories(cachedCategories);
@@ -65,13 +65,13 @@ export default function InsightsScreen() {
 
       setExpenses(appwriteExpenses);
       setCategories(appwriteCategories);
-      CacheService.setExpenses(appwriteExpenses);
-      CacheService.setCategories(appwriteCategories);
+      await CacheService.setExpenses(appwriteExpenses);
+      await CacheService.setCategories(appwriteCategories);
 
       // Generate insights via Gemini
       const insightsData = await GeminiService.generateInsights(appwriteExpenses);
       setInsights(insightsData);
-      CacheService.setInsightsCache(insightsData);
+      await CacheService.setInsightsCache(insightsData);
     } catch (error) {
       console.error('Error loading insights:', error);
     } finally {

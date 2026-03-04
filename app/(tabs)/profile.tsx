@@ -19,11 +19,15 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 export default function ProfileScreen() {
   const theme = useTheme();
   const { user: authUser, appwriteUser, logout } = useAuth();
-  const [user, setUser] = React.useState<User | null>(CacheService.getUser());
+  const [user, setUser] = React.useState<User | null>(null);
   const [budget, setBudget] = React.useState(String(user?.monthlyBudget || 30000));
   const [threshold, setThreshold] = React.useState(user?.alertThreshold || 80);
   const [voiceConfirmation, setVoiceConfirmation] = useState(true);
   const [quickConfirm, setQuickConfirm] = useState(false);
+
+  React.useEffect(() => {
+    CacheService.getUser().then(setUser);
+  }, []);
 
   React.useEffect(() => {
     if (authUser) {
@@ -42,7 +46,7 @@ export default function ProfileScreen() {
         alertThreshold: threshold,
       });
       setUser(updated);
-      CacheService.setUser(updated);
+      await CacheService.setUser(updated);
       Alert.alert('Success', 'Settings saved');
     } catch (error) {
       Alert.alert('Error', 'Failed to save settings');
@@ -50,7 +54,7 @@ export default function ProfileScreen() {
   };
 
   const handleExportCSV = async () => {
-    const expenses = CacheService.getExpenses();
+    const expenses = await CacheService.getExpenses();
 
     if (expenses.length === 0) {
       Alert.alert('No Data', 'No expenses to export');
@@ -96,7 +100,11 @@ export default function ProfileScreen() {
     });
   };
 
-  const totalExpenses = CacheService.getExpenses().length;
+  const [totalExpenses, setTotalExpenses] = React.useState(0);
+
+  React.useEffect(() => {
+    CacheService.getExpenses().then(expenses => setTotalExpenses(expenses.length));
+  }, []);
 
   return (
     <ScrollView

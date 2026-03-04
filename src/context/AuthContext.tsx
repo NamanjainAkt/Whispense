@@ -81,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userId = session.$id;
       
       // Try to get from cache first
-      const cachedUser = CacheService.getUser();
+      const cachedUser = await CacheService.getUser();
       if (cachedUser && cachedUser.id === userId) {
         setUser(cachedUser);
         return;
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUser(appwriteUser);
-      CacheService.setUser(appwriteUser);
+      await CacheService.setUser(appwriteUser);
     } catch (error) {
       console.error('Error syncing user with database:', error);
     }
@@ -146,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await account.deleteSession('current');
       
       // Clear cache
-      CacheService.clearAll();
+      await CacheService.clearAll();
       
       // Reset state
       setUser(null);

@@ -1,137 +1,136 @@
 // src/services/cache.ts
-import { MMKV } from 'react-native-mmkv';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants';
 import type { User, Category, Expense } from '../types';
 
-const storage = new MMKV({ id: 'whispense-cache' });
-
 export const CacheService = {
   // Generic methods
-  set: <T>(key: string, value: T): void => {
-    storage.set(key, JSON.stringify(value));
+  set: async <T>(key: string, value: T): Promise<void> => {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
   },
 
-  get: <T>(key: string): T | null => {
-    const value = storage.getString(key);
+  get: async <T>(key: string): Promise<T | null> => {
+    const value = await AsyncStorage.getItem(key);
     return value ? JSON.parse(value) : null;
   },
 
-  delete: (key: string): void => {
-    storage.remove(key);
+  delete: async (key: string): Promise<void> => {
+    await AsyncStorage.removeItem(key);
   },
 
-  clearAll: (): void => {
-    storage.clearAll();
+  clearAll: async (): Promise<void> => {
+    await AsyncStorage.clear();
   },
 
   // User methods
-  setUser: (user: User): void => {
-    CacheService.set(STORAGE_KEYS.USER_PROFILE, user);
+  setUser: async (user: User): Promise<void> => {
+    await CacheService.set(STORAGE_KEYS.USER_PROFILE, user);
   },
 
-  getUser: (): User | null => {
-    return CacheService.get<User>(STORAGE_KEYS.USER_PROFILE);
+  getUser: async (): Promise<User | null> => {
+    return await CacheService.get<User>(STORAGE_KEYS.USER_PROFILE);
   },
 
-  deleteUser: (): void => {
-    CacheService.delete(STORAGE_KEYS.USER_PROFILE);
+  deleteUser: async (): Promise<void> => {
+    await CacheService.delete(STORAGE_KEYS.USER_PROFILE);
   },
 
   // Categories methods
-  setCategories: (categories: Category[]): void => {
-    CacheService.set(STORAGE_KEYS.CATEGORIES, categories);
+  setCategories: async (categories: Category[]): Promise<void> => {
+    await CacheService.set(STORAGE_KEYS.CATEGORIES, categories);
   },
 
-  getCategories: (): Category[] => {
-    return CacheService.get<Category[]>(STORAGE_KEYS.CATEGORIES) || [];
+  getCategories: async (): Promise<Category[]> => {
+    return (await CacheService.get<Category[]>(STORAGE_KEYS.CATEGORIES)) || [];
   },
 
   // Expenses methods
-  setExpenses: (expenses: Expense[]): void => {
-    CacheService.set(STORAGE_KEYS.EXPENSES_CURRENT_MONTH, expenses);
+  setExpenses: async (expenses: Expense[]): Promise<void> => {
+    await CacheService.set(STORAGE_KEYS.EXPENSES_CURRENT_MONTH, expenses);
   },
 
-  getExpenses: (): Expense[] => {
-    return CacheService.get<Expense[]>(STORAGE_KEYS.EXPENSES_CURRENT_MONTH) || [];
+  getExpenses: async (): Promise<Expense[]> => {
+    return (await CacheService.get<Expense[]>(STORAGE_KEYS.EXPENSES_CURRENT_MONTH)) || [];
   },
 
-  addExpense: (expense: Expense): void => {
-    const expenses = CacheService.getExpenses();
+  addExpense: async (expense: Expense): Promise<void> => {
+    const expenses = await CacheService.getExpenses();
     expenses.unshift(expense);
-    CacheService.setExpenses(expenses);
+    await CacheService.setExpenses(expenses);
   },
 
-  updateExpense: (id: string, updates: Partial<Expense>): void => {
-    const expenses = CacheService.getExpenses();
+  updateExpense: async (id: string, updates: Partial<Expense>): Promise<void> => {
+    const expenses = await CacheService.getExpenses();
     const index = expenses.findIndex((e) => e.id === id);
     if (index !== -1) {
       expenses[index] = { ...expenses[index], ...updates };
-      CacheService.setExpenses(expenses);
+      await CacheService.setExpenses(expenses);
     }
   },
 
-  deleteExpense: (id: string): void => {
-    const expenses = CacheService.getExpenses();
+  deleteExpense: async (id: string): Promise<void> => {
+    const expenses = await CacheService.getExpenses();
     const filtered = expenses.filter((e) => e.id !== id);
-    CacheService.setExpenses(filtered);
+    await CacheService.setExpenses(filtered);
   },
 
   // Sync methods
-  setLastSync: (timestamp: number): void => {
-    storage.set(STORAGE_KEYS.LAST_SYNC_TIMESTAMP, timestamp);
+  setLastSync: async (timestamp: number): Promise<void> => {
+    await AsyncStorage.setItem(STORAGE_KEYS.LAST_SYNC_TIMESTAMP, String(timestamp));
   },
 
-  getLastSync: (): number => {
-    return storage.getNumber(STORAGE_KEYS.LAST_SYNC_TIMESTAMP) || 0;
+  getLastSync: async (): Promise<number> => {
+    const value = await AsyncStorage.getItem(STORAGE_KEYS.LAST_SYNC_TIMESTAMP);
+    return value ? Number(value) : 0;
   },
 
   // Pending sync queue
-  addToPendingSync: (operation: PendingOperation): void => {
-    const pending = CacheService.get<PendingOperation[]>(STORAGE_KEYS.PENDING_SYNC) || [];
+  addToPendingSync: async (operation: PendingOperation): Promise<void> => {
+    const pending = (await CacheService.get<PendingOperation[]>(STORAGE_KEYS.PENDING_SYNC)) || [];
     pending.push(operation);
-    CacheService.set(STORAGE_KEYS.PENDING_SYNC, pending);
+    await CacheService.set(STORAGE_KEYS.PENDING_SYNC, pending);
   },
 
-  getPendingSync: (): PendingOperation[] => {
-    return CacheService.get<PendingOperation[]>(STORAGE_KEYS.PENDING_SYNC) || [];
+  getPendingSync: async (): Promise<PendingOperation[]> => {
+    return (await CacheService.get<PendingOperation[]>(STORAGE_KEYS.PENDING_SYNC)) || [];
   },
 
-  clearPendingSync: (): void => {
-    CacheService.delete(STORAGE_KEYS.PENDING_SYNC);
+  clearPendingSync: async (): Promise<void> => {
+    await CacheService.delete(STORAGE_KEYS.PENDING_SYNC);
   },
 
   // Auth token
-  setAuthToken: (token: string): void => {
-    storage.set(STORAGE_KEYS.AUTH_TOKEN, token);
+  setAuthToken: async (token: string): Promise<void> => {
+    await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
   },
 
-  getAuthToken: (): string | undefined => {
-    return storage.getString(STORAGE_KEYS.AUTH_TOKEN);
+  getAuthToken: async (): Promise<string | null> => {
+    return await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
   },
 
-  deleteAuthToken: (): void => {
-    CacheService.delete(STORAGE_KEYS.AUTH_TOKEN);
+  deleteAuthToken: async (): Promise<void> => {
+    await CacheService.delete(STORAGE_KEYS.AUTH_TOKEN);
   },
 
   // FCM token
-  setFcmToken: (token: string): void => {
-    storage.set(STORAGE_KEYS.FCM_TOKEN, token);
+  setFcmToken: async (token: string): Promise<void> => {
+    await AsyncStorage.setItem(STORAGE_KEYS.FCM_TOKEN, token);
   },
 
-  getFcmToken: (): string | undefined => {
-    return storage.getString(STORAGE_KEYS.FCM_TOKEN);
+  getFcmToken: async (): Promise<string | null> => {
+    return await AsyncStorage.getItem(STORAGE_KEYS.FCM_TOKEN);
   },
 
   // Insights cache
-  setInsightsCache: (insights: unknown): void => {
-    CacheService.set(STORAGE_KEYS.INSIGHTS_CACHE, {
+  setInsightsCache: async (insights: unknown): Promise<void> => {
+    await CacheService.set(STORAGE_KEYS.INSIGHTS_CACHE, {
       data: insights,
       timestamp: Date.now(),
     });
   },
 
-  getInsightsCache: (): { data: unknown; timestamp: number } | null => {
-    return CacheService.get(STORAGE_KEYS.INSIGHTS_CACHE);
+  getInsightsCache: async (): Promise<{ data: unknown; timestamp: number } | null> => {
+    return await CacheService.get(STORAGE_KEYS.INSIGHTS_CACHE);
   },
 };
 

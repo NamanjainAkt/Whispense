@@ -33,8 +33,8 @@ export default function ExpensesScreen() {
     if (!user) return;
 
     // Load from cache
-    const cachedExpenses = CacheService.getExpenses();
-    const cachedCategories = CacheService.getCategories();
+    const cachedExpenses = await CacheService.getExpenses();
+    const cachedCategories = await CacheService.getCategories();
     setExpenses(cachedExpenses);
     setCategories(cachedCategories);
 
@@ -54,8 +54,8 @@ export default function ExpensesScreen() {
 
       setExpenses(appwriteExpenses);
       setCategories(appwriteCategories);
-      CacheService.setExpenses(appwriteExpenses);
-      CacheService.setCategories(appwriteCategories);
+      await CacheService.setExpenses(appwriteExpenses);
+      await CacheService.setCategories(appwriteCategories);
     } catch (error) {
       console.error('Error loading expenses:', error);
     }
@@ -95,7 +95,7 @@ export default function ExpensesScreen() {
   const handleDelete = async (expense: Expense) => {
     try {
       await AppwriteService.deleteExpense(expense.id);
-      CacheService.deleteExpense(expense.id);
+      await CacheService.deleteExpense(expense.id);
       setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
     } catch (error) {
       console.error('Error deleting expense:', error);
@@ -107,7 +107,7 @@ export default function ExpensesScreen() {
 
     try {
       const updated = await AppwriteService.updateExpense(editingExpense.id, updates);
-      CacheService.updateExpense(editingExpense.id, updated);
+      await CacheService.updateExpense(editingExpense.id, updated);
       setExpenses((prev) =>
         prev.map((e) => (e.id === updated.id ? updated : e))
       );

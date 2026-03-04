@@ -20,8 +20,8 @@ export default function HomeScreen() {
     if (!user) return;
 
     // Load from cache first
-    const cachedExpenses = CacheService.getExpenses();
-    const cachedUser = CacheService.getUser();
+    const cachedExpenses = await CacheService.getExpenses();
+    const cachedUser = await CacheService.getUser();
     setExpenses(cachedExpenses);
     setUserData(cachedUser);
 
@@ -43,10 +43,10 @@ export default function HomeScreen() {
       setExpenses(appwriteExpenses);
       if (appwriteUser) {
         setUserData(appwriteUser);
-        CacheService.setUser(appwriteUser);
+        await CacheService.setUser(appwriteUser);
       }
-      CacheService.setExpenses(appwriteExpenses);
-      CacheService.setLastSync(Date.now());
+      await CacheService.setExpenses(appwriteExpenses);
+      await CacheService.setLastSync(Date.now());
     } catch (error) {
       console.error('Error syncing data:', error);
     }

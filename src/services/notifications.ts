@@ -35,7 +35,7 @@ export const NotificationService = {
     }
 
     const token = (await Notifications.getExpoPushTokenAsync()).data;
-    CacheService.setFcmToken(token);
+    await CacheService.setFcmToken(token);
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
