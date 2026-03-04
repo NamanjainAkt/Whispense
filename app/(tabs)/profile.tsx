@@ -18,7 +18,7 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 
 export default function ProfileScreen() {
   const theme = useTheme();
-  const { user: authUser, clerkUser, logout } = useAuth();
+  const { user: authUser, appwriteUser, logout } = useAuth();
   const [user, setUser] = React.useState<User | null>(CacheService.getUser());
   const [budget, setBudget] = React.useState(String(user?.monthlyBudget || 30000));
   const [threshold, setThreshold] = React.useState(user?.alertThreshold || 80);
@@ -112,13 +112,13 @@ export default function ProfileScreen() {
             ]}
           >
             <Text variant="h2" color="primary">
-              {clerkUser?.fullName?.[0] || clerkUser?.firstName?.[0] || 'U'}
+              {appwriteUser?.fullName?.[0] || appwriteUser?.firstName?.[0] || 'U'}
             </Text>
           </View>
           <Spacer size="md" />
-          <Text variant="h2">{clerkUser?.fullName || clerkUser?.firstName || 'User'}</Text>
+          <Text variant="h2">{appwriteUser?.fullName || appwriteUser?.firstName || 'User'}</Text>
           <Text variant="caption" color="textSecondary">
-            {clerkUser?.primaryEmailAddress?.emailAddress}
+            {appwriteUser?.primaryEmailAddress?.emailAddress}
           </Text>
         </View>
 

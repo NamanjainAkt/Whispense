@@ -1,20 +1,18 @@
 # Whispense - Complete Setup Guide
 
-This guide walks you through setting up Clerk Authentication, Appwrite Backend, and Gemini AI for Whispense.
+This guide walks you through setting up Appwrite Authentication, Backend, and Gemini AI for Whispense.
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Clerk Setup](#clerk-setup)
-3. [Clerk JWT Configuration for Appwrite](#clerk-jwt-configuration-for-appwrite)
-4. [Google OAuth Setup](#google-oauth-setup)
-5. [Appwrite Setup](#appwrite-setup)
-6. [Gemini AI Setup](#gemini-ai-setup)
-7. [Environment Variables](#environment-variables)
-8. [Testing Your Setup](#testing-your-setup)
-9. [Troubleshooting](#troubleshooting)
+2. [Appwrite Setup](#appwrite-setup)
+3. [Google OAuth Setup](#google-oauth-setup)
+4. [Gemini AI Setup](#gemini-ai-setup)
+5. [Environment Variables](#environment-variables)
+6. [Testing Your Setup](#testing-your-setup)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -25,227 +23,35 @@ Before starting, ensure you have:
 - **Node.js** 18+ installed
 - **Expo CLI** installed (`npm install -g @expo/cli`)
 - **Android Studio** (for Android emulator) or physical Android device
-- A **Google Account** (for Clerk and Gemini)
+- A **Google Account** (for OAuth and Gemini)
 - **Git** installed
-
----
-
-## Clerk Setup
-
-### Step 1: Create Clerk Account
-
-1. Go to [Clerk Dashboard](https://dashboard.clerk.dev/)
-2. Sign up with your email or GitHub
-3. Create a new application:
-   - Name: `Whispense`
-   - Select "React Native (Expo)" as the framework (or skip this step)
-
-### Step 2: Get Your Publishable Key
-
-1. In Clerk Dashboard, go to **Configure** → **API Keys**
-2. Find your **Publishable key** (starts with `pk_test_` for development)
-3. Copy this value for your `.env` file: `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`
-
-### Step 3: Configure Redirect URL
-
-1. Go to **Configure** → **Authentication** → **Social Connections**
-2. Click **Google**
-3. In the **Authorized redirect URLs** section, add:
-   - `whispense://oauth-native-callback`
-4. Click **Save**
-
----
-
-## Clerk-Appwrite Bridge (Custom Token Auth)
-
-Since you're using Clerk for authentication and Appwrite for data storage, you need to bridge the two systems. We use **Appwrite Custom Token Authentication** via an Appwrite Function.
-
-### How It Works
-
-1. User signs in with Google via Clerk
-2. App calls the `clerk-auth` Appwrite Function
-3. Function creates an Appwrite user (if not exists) with the same ID as Clerk
-4. Function generates a custom token for that user
-5. App creates an Appwrite session using the token secret
-6. All subsequent Appwrite API calls use this session automatically
-
-### Step 1: Create the Appwrite Function
-
-1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
-2. Select your Whispense project
-3. Go to **Functions** → **Create Function**
-4. Configure:
-   - **Name**: `clerk-auth`
-   - **Runtime**: `Node.js (node-18.0 or later)`
-   - **Entrypoint**: `src/index.js`
-5. Click **Create**
-
-### Step 2: Deploy the Function Code
-
-**Option A: Manual Upload**
-
-1. In your local project, find the function at:
-   ```
-   appwrite-functions/clerk-auth/
-   ```
-2. Zip the contents (not the folder itself)
-3. In Appwrite Console, go to your function → **Deployments** → **Create Deployment**
-4. Upload the ZIP file
-5. Activate the deployment
-
-**Option B: Using Appwrite CLI**
-
-```bash
-# Install Appwrite CLI
-npm install -g appwrite-cli
-
-# Login
-appwrite login
-
-# Deploy the function
-appwrite deploy function --function-id=clerk-auth
-```
-
-### Step 3: Set Environment Variables
-
-In your function settings, add these environment variables:
-
-1. Go to Function → **Settings** → **Environment Variables**
-2. Add:
-   - `APPWRITE_FUNCTION_ENDPOINT`: `https://sgp.cloud.appwrite.io/v1`
-   - `APPWRITE_FUNCTION_PROJECT_ID`: `69a7401f00079fd976ab`
-   - `APPWRITE_API_KEY`: `standard_...` (your API key)
-
-To get your API key:
-- Go to Appwrite Console → **Overview** → **API Keys**
-- Create a new API key with scopes: `users.write`, `users.read`
-- Copy the key (starts with `standard_`)
-
-### Step 4: Configure Function Permissions
-
-1. Go to Function → **Settings** → **Execute Access**
-2. Add role: `any` (allows anyone to call this function)
-   - This is safe because we're verifying the user via Clerk first
-3. Click **Update**
-
-### Step 5: Update the Function ID in Code
-
-After deploying, check your Function ID in Appwrite Console:
-- Go to Functions → `clerk-auth` → copy the ID (e.g., `clerk-auth` or `65abc123...`)
-
-Update `src/context/AuthContext.tsx`:
-```typescript
-const CLERK_AUTH_FUNCTION_ID = 'clerk-auth'; // Use your actual function ID
-```
-
-### Step 6: Test the Bridge
-
-1. Run the app: `npx expo start`
-2. Sign in with Google
-3. Check Metro logs for:
-   - `"Calling clerk-auth function..."`
-   - `"Appwrite session created successfully"`
-4. Check Appwrite Console → Auth → Sessions - you should see an active session
-
-### Troubleshooting Bridge Issues
-
-**Error: "Function not found"**
-- Verify the function ID in AuthContext matches exactly
-- Check that the function is deployed and active
-
-**Error: "Permission denied" calling function**
-- Ensure Execute Access is set to `any`
-- Check that the function is in the same project
-
-**Error: "Failed to bridge Clerk to Appwrite"**
-- Check function logs in Appwrite Console → Functions → clerk-auth → Logs
-- Verify environment variables are set correctly
-- Ensure API key has `users.write` scope
-
-**Session not created**
-- Verify the function returns `success: true` and a `tokenSecret`
-- Check that `account.createSession()` is being called with correct parameters
-- Ensure token hasn't expired (tokens expire after 15 minutes by default)
-
----
-
-## Google OAuth Setup
-
-### Step 1: Get Google OAuth Client ID
-
-You have two options:
-
-**Option A: Use Clerk's Hosted OAuth (Easiest)**
-- No additional setup required
-- Clerk handles the OAuth flow
-- Skip to [Appwrite Setup](#appwrite-setup)
-
-**Option B: Use Your Own Google OAuth (More Control)**
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Go to **APIs & Services** → **Credentials**
-4. Click **"Create Credentials"** → **OAuth client ID**
-5. Select **Web application**
-6. Add authorized redirect URIs:
-   - `https://clerk.your-app.com/v1/oauth_callback` (if using custom domain)
-7. Copy the **Client ID** (looks like: `123456789-abc123.apps.googleusercontent.com`)
-8. This goes in `EXPO_PUBLIC_GOOGLE_CLIENT_ID`
-
-### Step 2: Enable Google Sign-In in Clerk
-
-1. Go back to Clerk Dashboard
-2. Go to **Configure** → **Authentication** → **Social Connections**
-3. Toggle **Google** to ON
-4. Choose your setup:
-   - **Use shared credentials** (easiest - Clerk handles it)
-   - **Use custom credentials** (paste your Google Client ID and Secret)
-5. Click **Save**
 
 ---
 
 ## Appwrite Setup
 
-### Step 1: Deploy Appwrite on Railway
+### Step 1: Create Appwrite Project
 
-**Option A: Railway (Recommended - Free tier available)**
+1. Go to [Appwrite Cloud Console](https://cloud.appwrite.io/)
+2. Sign up/login with your preferred method
+3. Click **"Create Project"**
+4. Name: `Whispense`
+5. Copy the **Project ID** (looks like: `648a1b2c3d4e5f6789abcdef`)
 
-1. Go to [Railway](https://railway.app/)
-2. Sign up/login with GitHub
-3. Click **"New Project"**
-4. Click **"Deploy from GitHub repo"**
-5. Search for and select `appwrite/appwrite`
-6. Click **"Deploy"**
-7. Wait for deployment to complete (2-3 minutes)
+### Step 2: Enable Google OAuth
 
-**Option B: Self-hosted (Docker)**
-
-```bash
-# Create appwrite directory
-mkdir appwrite && cd appwrite
-
-# Download docker-compose.yml
-curl -o docker-compose.yml https://raw.githubusercontent.com/appwrite/appwrite/main/docker-compose.yml
-
-# Start Appwrite
-docker compose up -d
-```
-
-### Step 2: Get Appwrite Endpoint & Project ID
-
-1. Once deployed, Railway will give you a public URL
-2. Your endpoint will be: `https://your-app-name.up.railway.app/v1`
-3. Go to the Appwrite Console (your endpoint without `/v1`)
-4. Create a new project:
-   - Name: `Whispense`
-   - Copy the **Project ID** (looks like: `648a1b2c3d4e5f6789abcdef`)
+1. In Appwrite Console, go to **Auth** → **Settings**
+2. Scroll to **OAuth2 Providers**
+3. Find **Google** and click it
+4. Toggle **Enabled** to ON
+5. You'll need to add Google Client ID and Secret (see [Google OAuth Setup](#google-oauth-setup))
 
 ### Step 3: Create Database
 
-1. In Appwrite Console, go to **Databases**
+1. Go to **Databases**
 2. Click **"Create database"**
-3. Name: `whispense_db`
-4. Database ID: `whispense_db`
+3. Database ID: `whispense_db`
+4. Name: `Whispense DB`
 5. Click **Create**
 
 ### Step 4: Create Collections
@@ -329,24 +135,57 @@ docker compose up -d
 
 ### Step 5: Set Permissions
 
-For each collection, you need to set permissions:
+For each collection, set permissions:
 
 1. Go to collection → **Settings** → **Permissions**
-2. Add these permissions:
-   - `users` collection: `users` → `read`, `update` (own documents only)
-   - `expenses` collection: `users` → `create`, `read`, `update`, `delete` (own documents only)
-   - `categories` collection: `users` → `create`, `read`, `update`, `delete` (own documents only)
+2. Add:
+   - **Users Collection**: `Users` → `read`, `update` (own documents)
+   - **Expenses Collection**: `Users` → `create`, `read`, `update`, `delete` (own documents)
+   - **Categories Collection**: `Users` → `create`, `read`, `update`, `delete` (own documents)
 
-To restrict to own documents only, use:
-- `user_id = {{user.$id}}` in the permission filters
+To restrict to own documents, add filter: `user_id = {{user.$id}}`
 
-### Step 6: Create API Key (for server-side operations)
+---
 
-1. Go to **Overview** → **API Keys**
-2. Click **"Create API Key"**
-3. Name: `Whispense Server`
-4. Scopes: Select `databases.write`, `users.read`, `users.write`
-5. Copy the API key (starts with `standard_`)
+## Google OAuth Setup
+
+### Step 1: Create Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing
+3. Go to **APIs & Services** → **Credentials**
+
+### Step 2: Configure OAuth Consent Screen
+
+1. Click **"OAuth consent screen"** (left sidebar)
+2. Select **"External"** (or Internal if using Google Workspace)
+3. Fill in:
+   - App name: `Whispense`
+   - User support email: your email
+   - Developer contact: your email
+4. Click **Save and Continue**
+5. Skip Scopes and Test Users for now
+6. Click **Back to Dashboard**
+
+### Step 3: Create OAuth Credentials
+
+1. Go to **Credentials** → **Create Credentials** → **OAuth client ID**
+2. Application type: **Web application**
+3. Name: `Whispense Web Client`
+4. Authorized redirect URIs:
+   - `https://cloud.appwrite.io/v1/account/sessions/oauth2/callback/google/YOUR_PROJECT_ID`
+   - (Replace `YOUR_PROJECT_ID` with your actual Appwrite project ID)
+5. Click **Create**
+6. Copy **Client ID** and **Client Secret**
+
+### Step 4: Add to Appwrite
+
+1. Go back to Appwrite Console → **Auth** → **Settings** → **OAuth2**
+2. Click **Google**
+3. Paste:
+   - App ID: Google Client ID
+   - Secret: Google Client Secret
+4. Click **Update**
 
 ---
 
@@ -358,25 +197,18 @@ To restrict to own documents only, use:
 2. Sign in with your Google account
 3. Click **"Create API Key"**
 4. Select your Google Cloud project
-5. Click **"Create API key in existing project"**
-6. Copy the API key (looks like: `AIzaSy...`)
+5. Copy the API key (looks like: `AIzaSy...`)
 
 ### Step 2: Verify API Access
-
-The Gemini 1.5 Flash model is available in the free tier with:
-- 1,500 requests per day
-- 1 million tokens per minute
 
 Test your API key:
 
 ```bash
-curl https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=YOUR_API_KEY \
+curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=YOUR_API_KEY" \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '{
-    "contents": [{
-      "parts":[{"text": "Say hello"}]
-    }]
+    "contents": [{"parts":[{"text": "Say hello"}]}]
   }'
 ```
 
@@ -387,25 +219,11 @@ curl https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:ge
 Create a `.env` file in your project root:
 
 ```env
-# ============================================
-# Clerk Authentication
-# ============================================
-EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-
-# ============================================
-# Google OAuth (Optional - only if using custom credentials)
-# ============================================
-# EXPO_PUBLIC_GOOGLE_CLIENT_ID=your_web_client_id.apps.googleusercontent.com
-
-# ============================================
 # Appwrite Configuration
-# ============================================
-EXPO_PUBLIC_APPWRITE_ENDPOINT=https://your-appwrite-url.up.railway.app/v1
+EXPO_PUBLIC_APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
 EXPO_PUBLIC_APPWRITE_PROJECT_ID=your_appwrite_project_id
 
-# ============================================
 # Gemini AI
-# ============================================
 EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 ```
 
@@ -413,9 +231,7 @@ EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 
 | Variable | Where to find |
 |----------|---------------|
-| `CLERK_PUBLISHABLE_KEY` | Clerk Dashboard → Configure → API Keys → Publishable key |
-| `GOOGLE_CLIENT_ID` | (Optional) Google Cloud Console → APIs & Services → Credentials → Web client |
-| `APPWRITE_ENDPOINT` | Your Railway URL + `/v1` |
+| `APPWRITE_ENDPOINT` | Appwrite Console → Settings → API Endpoint |
 | `APPWRITE_PROJECT_ID` | Appwrite Console → Settings → Project ID |
 | `GEMINI_API_KEY` | Google AI Studio → API Keys |
 
@@ -428,126 +244,65 @@ EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 ```bash
 cd whispense
 
-# Check all required variables are set
-grep -E "^EXPO_PUBLIC_" .env | wc -l
-# Should output: 4 (or 5 if using custom Google Client ID)
+# Check variables
+grep -E "^EXPO_PUBLIC_" .env
 ```
 
-### Step 2: Test Clerk Auth
+### Step 2: Test Appwrite Auth
 
-1. Run the app: `npx expo start`
+1. Run: `npx expo start`
 2. Press `a` for Android
-3. You should see the login screen with "Sign in with Google" button
-4. Tap it - should open Google sign-in flow
-5. After signing in, check:
-   - **Clerk Dashboard** → Users → Your email should appear
-   - **Appwrite Console** → Auth → Sessions → Should show an active session
-   - **Metro logs** → Should see "Clerk JWT bridged to Appwrite successfully"
+3. Tap "Sign in with Google"
+4. Complete OAuth flow
+5. Check Appwrite Console → Auth → Users - your email should appear
 
-### Step 3: Test Appwrite Connection
+### Step 3: Test Database
 
-1. After signing in, check Appwrite Console → Database → Users
-   - A new document should be created with your user data
-   - Default categories should be seeded automatically
+1. After sign-in, go to Voice tab
+2. Record: "I spent 50 rupees on chai"
+3. Save the expense
+4. Check Appwrite Console → Database → Expenses - document should exist
 
-### Step 4: Test Voice Logging
-
-1. Go to Voice tab (center mic button)
-2. Tap to record
-3. Say: "I spent 50 rupees on chai"
-4. You should see parsed result with amount, item, and category
-5. Check Appwrite Console → Database → Expenses
-   - New expense document should appear
-
-### Step 5: Test Gemini Integration
+### Step 4: Test Gemini
 
 1. Go to Insights tab
-2. You should see:
-   - Financial Health Score
-   - Category Breakdown
-   - AI Saving Suggestions
+2. You should see AI-generated suggestions
 
 ---
 
 ## Troubleshooting
 
-### Clerk Issues
+### Auth Issues
 
-**Error: "Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY"**
-- Ensure your `.env` file exists and contains the key
-- Restart Expo: `npx expo start -c` (clear cache)
-- Check that the key starts with `pk_test_` (dev) or `pk_live_` (prod)
+**"User already exists in the project"**
+- This is normal - Appwrite creates a user on first OAuth sign-in
+- Subsequent sign-ins use the same user
 
-**Error: "Google Sign-In failed" or OAuth flow doesn't complete**
-- Verify Google OAuth is enabled in Clerk Dashboard
-- Check that `whispense://oauth-native-callback` is in authorized redirect URLs
-- Ensure your app.json has the correct scheme: `"scheme": "whispense"`
-- Try using Clerk's shared credentials instead of custom
+**"Failed to create OAuth2 session"**
+- Check Google OAuth credentials in Appwrite Console
+- Verify redirect URI is correct
+- Ensure OAuth consent screen is published (or add test users)
 
-**Error: "Unable to process callback"**
-- Check that the redirect URL in Clerk matches your app scheme
-- Verify you're testing on a physical device or emulator with Play Services
-- Check that `expo-secure-store` is properly installed
-
-**Error: "Session not found" after sign-in**
-- Check that `tokenCache` is properly configured in `_layout.tsx`
-- Verify `expo-secure-store` has proper permissions
-- Check Clerk Dashboard for session logs
-
-### Appwrite Issues
-
-**Error: "Project not found"**
-- Check `EXPO_PUBLIC_APPWRITE_ENDPOINT` ends with `/v1`
-- Verify `EXPO_PUBLIC_APPWRITE_PROJECT_ID` is correct
-- Ensure your Appwrite instance is running
-
-**Error: "Permission denied"**
-- Check collection permissions in Appwrite Console
-- Ensure user is authenticated before making requests
-- Verify indexes are created correctly
-
-**Error: "Document not found"**
-- Check database and collection IDs match exactly
-- Verify user document was created in Clerk auth callback
-
-### Gemini Issues
-
-**Error: "API key not valid"**
-- Regenerate key in Google AI Studio
-- Ensure key has access to Gemini 1.5 Flash model
-- Check quota limits (1,500 requests/day on free tier)
-
-**Error: "Model not found"**
-- Verify API endpoint is correct: `gemini-1.5-flash`
-- Check API key has generative language API access
+**"Permission denied" on database**
+- Check collection permissions are set to `Users`
+- Verify you're authenticated (check Auth → Sessions)
 
 ### General Issues
-
-**TypeScript errors after setup**
-```bash
-npx tsc --noEmit
-```
-Fix any reported errors.
 
 **Metro bundler cache issues**
 ```bash
 npx expo start -c
 ```
 
-**Android build fails**
+**TypeScript errors**
 ```bash
-cd android
-./gradlew clean
-cd ..
-npx expo run:android
+npx tsc --noEmit
 ```
 
-**iOS build issues**
+**Android build fails**
 ```bash
-cd ios
-pod install
-cd ..
-npx expo run:ios
+cd android && ./gradlew clean && cd ..
+npx expo run:android
 ```
 
 ---
@@ -556,37 +311,11 @@ npx expo run:ios
 
 Before deploying to production:
 
-- [ ] Switch to Clerk production instance (pk_live_ key)
+- [ ] Enable Appwrite Email Verification (optional)
+- [ ] Set up proper collection permissions
 - [ ] Regenerate all API keys
-- [ ] Set up Appwrite collection permissions correctly
-- [ ] Add rate limiting to Gemini calls (already in code)
-- [ ] Review and limit API key scopes
-- [ ] Enable Clerk's bot protection
-- [ ] Set up backup for Appwrite database
-
----
-
-## Next Steps
-
-After setup is complete:
-
-1. **Test the full flow**: Voice → Parse → Save → View in Dashboard
-2. **Set up notifications**: Uncomment notification code in `app/_layout.tsx`
-3. **Customize theme**: Edit `src/theme/theme.ts`
-4. **Add animations**: Implement Reanimated animations for polish
-5. **Build for production**: Follow EAS Build guide in README.md
-
----
-
-## Migration from Firebase (If Applicable)
-
-If you're migrating from Firebase Auth:
-
-1. Remove Firebase environment variables from `.env`
-2. Delete `google-services.json`
-3. Uninstall Firebase: `npm uninstall firebase`
-4. Update any components referencing `firebaseUser` to use `clerkUser`
-5. User data in Appwrite remains compatible (same ID structure)
+- [ ] Review Google OAuth consent screen branding
+- [ ] Enable rate limiting on Gemini calls
 
 ---
 
@@ -594,13 +323,10 @@ If you're migrating from Firebase Auth:
 
 If you encounter issues:
 
-1. Check logs: `npx expo start` shows errors in terminal
-2. Enable debug mode: Add `console.log()` statements
-3. Check network requests: Use React Native Debugger or Flipper
-4. Verify environment: Run `npx expo doctor`
-5. Clear caches: `npx expo start -c`
-6. Clerk docs: [clerk.dev/docs](https://clerk.dev/docs)
-7. Appwrite docs: [appwrite.io/docs](https://appwrite.io/docs)
+1. Check logs: `npx expo start`
+2. Verify environment: `npx expo doctor`
+3. Clear caches: `npx expo start -c`
+4. Appwrite docs: [appwrite.io/docs](https://appwrite.io/docs)
 
 ---
 

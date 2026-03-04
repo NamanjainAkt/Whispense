@@ -11,7 +11,7 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const { user, clerkUser } = useAuth();
+  const { user, appwriteUser } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [userData, setUserData] = useState<User | null>(null);
@@ -93,7 +93,7 @@ export default function HomeScreen() {
           </Text>
           <Text variant="h2">{firstName}</Text>
         </View>
-        {clerkUser?.imageUrl && (
+        {appwriteUser?.imageUrl && (
           <View
             style={[
               styles.avatar,

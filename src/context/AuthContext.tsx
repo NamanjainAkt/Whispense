@@ -1,15 +1,19 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useAuth as useClerkAuth, useUser, useOAuth } from '@clerk/expo';
-import { useRouter } from 'expo-router';
-import { Client, Functions, Account } from 'appwrite';
+import { useRouter, useSegments } from 'expo-router';
+import { Client, Account, OAuthProvider, Models } from 'appwrite';
+import * as WebBrowser from 'expo-web-browser';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
 import type { User } from '../types';
 
+// Appwrite configuration
+const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
+const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+
 interface AuthContextType {
   user: User | null;
-  clerkUser: ReturnType<typeof useUser>['user'];
+  appwriteUser: Models.User<Models.Preferences> | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -17,156 +21,139 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Appwrite client for function calls (no session needed initially)
-const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
-const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
-
+// Create Appwrite client
 const client = new Client()
   .setEndpoint(APPWRITE_ENDPOINT)
   .setProject(APPWRITE_PROJECT_ID);
 
-const functions = new Functions(client);
 const account = new Account(client);
 
-// Function ID for clerk-auth (you'll get this after deploying)
-const CLERK_AUTH_FUNCTION_ID = 'clerk-auth'; // Update this after deployment
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn, signOut } = useClerkAuth();
-  const { user: clerkUser } = useUser();
-  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const router = useRouter();
-
+  const segments = useSegments();
+  
   const [user, setUser] = useState<User | null>(null);
+  const [appwriteUser, setAppwriteUser] = useState<Models.User<Models.Preferences> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [appwriteSessionCreated, setAppwriteSessionCreated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Bridge Clerk to Appwrite via Function
-  const bridgeClerkToAppwrite = async (): Promise<void> => {
-    if (!clerkUser) return;
+  // Check for existing session on mount
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
 
+  // Handle routing based on auth state
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === 'login';
+
+    if (!isAuthenticated && !inAuthGroup) {
+      // Redirect to login if not authenticated
+      router.replace('/login');
+    } else if (isAuthenticated && inAuthGroup) {
+      // Redirect to home if authenticated
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, loading, segments]);
+
+  const checkAuthStatus = async () => {
     try {
-      console.log('Calling clerk-auth function...');
+      // Try to get current session
+      const session = await account.get();
+      setAppwriteUser(session);
+      setIsAuthenticated(true);
 
-      // Call the clerk-auth function
-      const execution = await functions.createExecution(
-        CLERK_AUTH_FUNCTION_ID,
-        JSON.stringify({
-          userId: clerkUser.id,
-          email: clerkUser.primaryEmailAddress?.emailAddress,
-          name: clerkUser.fullName || clerkUser.firstName,
-        }),
-        false, // async = false (wait for result)
-        '/',   // path
-        'POST' // method
-      );
-
-      const response = JSON.parse(execution.responseBody);
-      console.log('Function response:', response);
-
-      if (!response.success) {
-        throw new Error(response.message || 'Function failed');
-      }
-
-      // Create Appwrite session using the token secret
-      await account.createSession(
-        response.userId,
-        response.tokenSecret
-      );
-
-      console.log('Appwrite session created successfully');
-      setAppwriteSessionCreated(true);
-
+      // Fetch or create user data in database
+      await syncUserWithDatabase(session);
     } catch (error) {
-      console.error('Failed to bridge Clerk to Appwrite:', error);
-      throw error;
+      // No active session
+      setAppwriteUser(null);
+      setUser(null);
+      setIsAuthenticated(false);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Sync Clerk user with Appwrite user
-  useEffect(() => {
-    if (!isLoaded) return;
-
-    const syncUser = async () => {
-      if (isSignedIn && clerkUser) {
-        try {
-          // Bridge Clerk to Appwrite first
-          if (!appwriteSessionCreated) {
-            await bridgeClerkToAppwrite();
-          }
-
-          // Try to get user from cache first
-          const cachedUser = CacheService.getUser();
-          const clerkUserId = clerkUser.id;
-
-          if (cachedUser && cachedUser.id === clerkUserId) {
-            setUser(cachedUser);
-          } else {
-            // Fetch from Appwrite
-            const appwriteUser = await AppwriteService.getUser(clerkUserId);
-
-            if (appwriteUser) {
-              setUser(appwriteUser);
-              CacheService.setUser(appwriteUser);
-            } else {
-              // Create new user in Appwrite database (not auth)
-              const newUser = await AppwriteService.createUser({
-                id: clerkUserId,
-                name: clerkUser.fullName || clerkUser.firstName || 'User',
-                email: clerkUser.primaryEmailAddress?.emailAddress || '',
-                avatarUrl: clerkUser.imageUrl || undefined,
-              });
-              setUser(newUser);
-              CacheService.setUser(newUser);
-            }
-          }
-        } catch (error) {
-          console.error('Error syncing user:', error);
-        }
-      } else {
-        setUser(null);
-        CacheService.deleteUser();
-        setAppwriteSessionCreated(false);
+  const syncUserWithDatabase = async (session: Models.User<Models.Preferences>) => {
+    try {
+      const userId = session.$id;
+      
+      // Try to get from cache first
+      const cachedUser = CacheService.getUser();
+      if (cachedUser && cachedUser.id === userId) {
+        setUser(cachedUser);
+        return;
       }
 
-      setLoading(false);
-    };
+      // Fetch from Appwrite database
+      let appwriteUser = await AppwriteService.getUser(userId);
 
-    syncUser();
-  }, [isLoaded, isSignedIn, clerkUser, appwriteSessionCreated]);
+      if (!appwriteUser) {
+        // Create new user document in database
+        appwriteUser = await AppwriteService.createUser({
+          id: userId,
+          name: session.name || 'User',
+          email: session.email || '',
+          avatarUrl: undefined, // Appwrite doesn't provide avatar URL directly
+        });
+      }
+
+      setUser(appwriteUser);
+      CacheService.setUser(appwriteUser);
+    } catch (error) {
+      console.error('Error syncing user with database:', error);
+    }
+  };
 
   const signInWithGoogle = async () => {
     try {
-      const { createdSessionId, setActive } = await startOAuthFlow();
+      // Get OAuth2 URL from Appwrite
+      const redirectUri = 'whispense://callback';
+      
+      // Create OAuth2 session
+      const response = await account.createOAuth2Session(
+        OAuthProvider.Google,
+        redirectUri,  // Success URL
+        redirectUri,  // Failure URL
+        []            // Scopes (empty = default)
+      );
 
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
-        // The useEffect above will handle bridging and syncing with Appwrite
-      } else {
-        throw new Error('No session created during OAuth flow');
-      }
+      // The response will be handled by deep linking
+      // After successful OAuth, checkAuthStatus will be called
+      
     } catch (error) {
       console.error('Google sign in error:', error);
       throw error;
     }
   };
 
+  // Handle OAuth callback
+  const handleOAuthCallback = async (url: string) => {
+    try {
+      // Extract session from URL if needed
+      // Appwrite handles this automatically via cookies
+      await checkAuthStatus();
+    } catch (error) {
+      console.error('OAuth callback error:', error);
+    }
+  };
+
   const logout = async () => {
     try {
-      // Clear Appwrite session
-      try {
-        await account.deleteSessions();
-      } catch (e) {
-        console.log('No Appwrite session to clear');
-      }
-
-      // Sign out from Clerk
-      await signOut();
-
-      // Clear local cache
+      // Delete current session
+      await account.deleteSession('current');
+      
+      // Clear cache
       CacheService.clearAll();
+      
+      // Reset state
       setUser(null);
-      setAppwriteSessionCreated(false);
+      setAppwriteUser(null);
+      setIsAuthenticated(false);
+      
+      // Redirect to login
       router.replace('/login');
     } catch (error) {
       console.error('Logout error:', error);
@@ -176,7 +163,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, clerkUser, loading: loading || !isLoaded, signInWithGoogle, logout }}
+      value={{ 
+        user, 
+        appwriteUser, 
+        loading, 
+        signInWithGoogle, 
+        logout 
+      }}
     >
       {children}
     </AuthContext.Provider>
