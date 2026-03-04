@@ -1,9 +1,9 @@
 // src/services/cache.ts
-import { createMMKV } from 'react-native-mmkv';
+import { MMKV } from 'react-native-mmkv';
 import { STORAGE_KEYS } from '../constants';
 import type { User, Category, Expense } from '../types';
 
-const storage = createMMKV({ id: 'whispense-cache' });
+const storage = new MMKV({ id: 'whispense-cache' });
 
 export const CacheService = {
   // Generic methods
