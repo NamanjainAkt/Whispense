@@ -37,6 +37,12 @@
           "icon": "./assets/icon.png",
           "color": "#6366F1"
         }
+      ],
+      [
+        "expo-auth-session",
+        {
+          "redirectUri": "https://auth.expo.io/@namanjainakt/whispense"
+        }
       ]
     ]
   }

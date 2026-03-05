@@ -1,11 +1,15 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
-import { Client, Account, OAuthProvider, Models } from 'appwrite';
+import { Client, Account, Models } from 'appwrite';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
 import type { User } from '../types';
+
+// Complete any pending auth sessions
+WebBrowser.maybeCompleteAuthSession();
 
 // Appwrite configuration
 const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
@@ -109,34 +113,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      // Get OAuth2 URL from Appwrite
-      const redirectUri = 'whispense://callback';
-      
-      // Create OAuth2 session
-      const response = await account.createOAuth2Session(
-        OAuthProvider.Google,
-        redirectUri,  // Success URL
-        redirectUri,  // Failure URL
-        []            // Scopes (empty = default)
-      );
+      // Get redirect URI using Expo AuthSession proxy (works in Expo Go)
+      const redirectUri = AuthSession.makeRedirectUri({
+        useProxy: true,
+      });
 
-      // The response will be handled by deep linking
-      // After successful OAuth, checkAuthStatus will be called
-      
+      console.log('OAuth Redirect URI:', redirectUri);
+
+      // Build Appwrite OAuth URL
+      const authUrl = 
+        `${APPWRITE_ENDPOINT}/account/sessions/oauth2/google` +
+        `?project=${APPWRITE_PROJECT_ID}` +
+        `&success=${encodeURIComponent(redirectUri)}` +
+        `&failure=${encodeURIComponent(redirectUri)}`;
+
+      console.log('Starting OAuth flow...');
+
+      // Start OAuth session
+      const result = await AuthSession.startAsync({
+        authUrl,
+      });
+
+      console.log('OAuth result:', result);
+
+      if (result.type === 'success') {
+        // The session is automatically created by Appwrite
+        // Just need to refresh the auth status
+        await checkAuthStatus();
+      } else if (result.type === 'cancel') {
+        console.log('User cancelled OAuth');
+      } else {
+        console.error('OAuth failed:', result);
+        throw new Error('OAuth authentication failed');
+      }
     } catch (error) {
       console.error('Google sign in error:', error);
       throw error;
-    }
-  };
-
-  // Handle OAuth callback
-  const handleOAuthCallback = async (url: string) => {
-    try {
-      // Extract session from URL if needed
-      // Appwrite handles this automatically via cookies
-      await checkAuthStatus();
-    } catch (error) {
-      console.error('OAuth callback error:', error);
     }
   };
 
