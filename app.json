@@ -37,7 +37,8 @@
           "icon": "./assets/icon.png",
           "color": "#6366F1"
         }
-      ]
+      ],
+      "expo-dev-client"
     ]
   }
 }

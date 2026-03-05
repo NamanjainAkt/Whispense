@@ -2,14 +2,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { Client, Account, Models } from 'appwrite';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+import { authorize } from 'react-native-app-auth';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
 import type { User } from '../types';
-
-// Complete any pending auth sessions
-WebBrowser.maybeCompleteAuthSession();
 
 // Appwrite configuration
 const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
@@ -31,6 +27,17 @@ const client = new Client()
   .setProject(APPWRITE_PROJECT_ID);
 
 const account = new Account(client);
+
+// react-native-app-auth configuration for Appwrite Google OAuth
+const authConfig = {
+  issuer: APPWRITE_ENDPOINT,
+  clientId: APPWRITE_PROJECT_ID, // Appwrite uses project ID as client ID
+  redirectUrl: 'whispense://callback',
+  scopes: ['openid', 'profile', 'email'],
+  // Appwrite OAuth2 endpoint
+  authorizationEndpoint: `${APPWRITE_ENDPOINT}/account/sessions/oauth2/google`,
+  tokenEndpoint: `${APPWRITE_ENDPOINT}/account/sessions/oauth2/callback/google/${APPWRITE_PROJECT_ID}`,
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -113,38 +120,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      // Get redirect URI using Expo AuthSession proxy (works in Expo Go)
-      const redirectUri = AuthSession.makeRedirectUri({
-        useProxy: true,
-      });
+      console.log('Starting Google OAuth with react-native-app-auth...');
+      console.log('Auth config:', authConfig);
 
-      console.log('OAuth Redirect URI:', redirectUri);
-
-      // Build Appwrite OAuth URL
-      const authUrl = 
-        `${APPWRITE_ENDPOINT}/account/sessions/oauth2/google` +
-        `?project=${APPWRITE_PROJECT_ID}` +
-        `&success=${encodeURIComponent(redirectUri)}` +
-        `&failure=${encodeURIComponent(redirectUri)}`;
-
-      console.log('Starting OAuth flow...');
-
-      // Start OAuth session
-      const result = await AuthSession.startAsync({
-        authUrl,
-      });
+      // Use react-native-app-auth to perform OAuth
+      const result = await authorize(authConfig);
 
       console.log('OAuth result:', result);
 
-      if (result.type === 'success') {
-        // The session is automatically created by Appwrite
+      if (result.accessToken) {
+        // The session should be created automatically by Appwrite
         // Just need to refresh the auth status
         await checkAuthStatus();
-      } else if (result.type === 'cancel') {
-        console.log('User cancelled OAuth');
       } else {
-        console.error('OAuth failed:', result);
-        throw new Error('OAuth authentication failed');
+        throw new Error('No access token received');
       }
     } catch (error) {
       console.error('Google sign in error:', error);
