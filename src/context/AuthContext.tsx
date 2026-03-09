@@ -1,7 +1,7 @@
 // src/context/AuthContext.tsx
-import React, { createContext, useContext, useCallback, useEffect, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useState, useRef } from 'react';
 import { useRouter, useSegments } from 'expo-router';
-import { Account, Models } from 'appwrite';
+import { Models } from 'appwrite';
 import { account } from '../services/appwrite';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
@@ -21,14 +21,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
+  const mounted = useRef(false);
 
   const [user, setUser] = useState<User | null>(null);
   const [appwriteUser, setAppwriteUser] = useState<Models.User<Models.Preferences> | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Track mount status
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const syncUserWithDatabase = useCallback(
     async (session: Models.User<Models.Preferences>) => {
+      if (!mounted.current) return;
+      
       try {
         const userId = session.$id;
 
@@ -48,8 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           });
         }
 
-        setUser(dbUser);
-        await CacheService.setUser(dbUser);
+        if (mounted.current) {
+          setUser(dbUser);
+          await CacheService.setUser(dbUser);
+        }
       } catch (error) {
         console.error('Error syncing user with database:', error);
       }
@@ -58,18 +71,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const checkAuthStatus = useCallback(async () => {
+    if (!mounted.current) return;
+    
     try {
       const session = await account.get();
+      if (!mounted.current) return;
+      
       setAppwriteUser(session);
       setIsAuthenticated(true);
       await syncUserWithDatabase(session);
     } catch {
+      if (!mounted.current) return;
+      
       // No active session
       setAppwriteUser(null);
       setUser(null);
       setIsAuthenticated(false);
     } finally {
-      setLoading(false);
+      if (mounted.current) {
+        setLoading(false);
+      }
     }
   }, [syncUserWithDatabase]);
 
@@ -106,9 +127,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await googleSignOut();
       await CacheService.clearAll();
-      setUser(null);
-      setAppwriteUser(null);
-      setIsAuthenticated(false);
+      if (mounted.current) {
+        setUser(null);
+        setAppwriteUser(null);
+        setIsAuthenticated(false);
+      }
       router.replace('/login');
     } catch (error) {
       console.error('Logout error:', error);
