@@ -4,10 +4,16 @@ import type { User, Category, Expense } from '../types';
 import { DEFAULT_CATEGORIES } from '../types';
 import { DEFAULT_MONTHLY_BUDGET, DEFAULT_ALERT_THRESHOLD } from '../constants';
 
-// Appwrite configuration - Replace with your actual credentials
-const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
-const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT ?? '';
+const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? '';
 const DATABASE_ID = 'whispense_db';
+
+if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID) {
+  console.warn(
+    '[Appwrite] Missing EXPO_PUBLIC_APPWRITE_ENDPOINT or EXPO_PUBLIC_APPWRITE_PROJECT_ID. ' +
+      'Check your .env file.'
+  );
+}
 
 export const COLLECTIONS = {
   USERS: 'users',
@@ -49,7 +55,7 @@ export const AppwriteService = {
       }
     );
 
-    // Seed default categories
+    // Seed default categories (best-effort — individual failures are logged but don't block)
     await AppwriteService.seedDefaultCategories(user.$id);
 
     return {
@@ -65,11 +71,7 @@ export const AppwriteService = {
 
   getUser: async (userId: string): Promise<User | null> => {
     try {
-      const user = await databases.getDocument(
-        DATABASE_ID,
-        COLLECTIONS.USERS,
-        userId
-      );
+      const user = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, userId);
       return {
         id: user.$id,
         name: user.name,
@@ -85,17 +87,12 @@ export const AppwriteService = {
   },
 
   updateUser: async (userId: string, updates: Partial<User>): Promise<User> => {
-    const user = await databases.updateDocument(
-      DATABASE_ID,
-      COLLECTIONS.USERS,
-      userId,
-      {
-        name: updates.name,
-        avatar_url: updates.avatarUrl,
-        monthly_budget: updates.monthlyBudget,
-        alert_threshold: updates.alertThreshold,
-      }
-    );
+    const user = await databases.updateDocument(DATABASE_ID, COLLECTIONS.USERS, userId, {
+      name: updates.name,
+      avatar_url: updates.avatarUrl,
+      monthly_budget: updates.monthlyBudget,
+      alert_threshold: updates.alertThreshold,
+    });
     return {
       id: user.$id,
       name: user.name,
@@ -110,27 +107,25 @@ export const AppwriteService = {
   // Categories
   seedDefaultCategories: async (userId: string): Promise<void> => {
     for (const category of DEFAULT_CATEGORIES) {
-      await databases.createDocument(
-        DATABASE_ID,
-        COLLECTIONS.CATEGORIES,
-        ID.unique(),
-        {
+      try {
+        await databases.createDocument(DATABASE_ID, COLLECTIONS.CATEGORIES, ID.unique(), {
           user_id: userId,
           name: category.name,
           icon: category.icon,
           color: category.color,
           is_custom: category.isCustom,
-        }
-      );
+        });
+      } catch (error) {
+        // Log individual failure but continue seeding the rest
+        console.error(`Failed to seed category "${category.name}":`, error);
+      }
     }
   },
 
   getCategories: async (userId: string): Promise<Category[]> => {
-    const response = await databases.listDocuments(
-      DATABASE_ID,
-      COLLECTIONS.CATEGORIES,
-      [Query.equal('user_id', userId)]
-    );
+    const response = await databases.listDocuments(DATABASE_ID, COLLECTIONS.CATEGORIES, [
+      Query.equal('user_id', userId),
+    ]);
     return response.documents.map((doc) => ({
       id: doc.$id,
       userId: doc.user_id,
@@ -165,7 +160,11 @@ export const AppwriteService = {
   },
 
   // Expenses
-  getExpenses: async (userId: string, startDate?: string, endDate?: string): Promise<Expense[]> => {
+  getExpenses: async (
+    userId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<Expense[]> => {
     const queries = [Query.equal('user_id', userId), Query.orderDesc('date')];
 
     if (startDate) {
@@ -175,11 +174,7 @@ export const AppwriteService = {
       queries.push(Query.lessThanEqual('date', endDate));
     }
 
-    const response = await databases.listDocuments(
-      DATABASE_ID,
-      COLLECTIONS.EXPENSES,
-      queries
-    );
+    const response = await databases.listDocuments(DATABASE_ID, COLLECTIONS.EXPENSES, queries);
 
     return response.documents.map((doc) => ({
       id: doc.$id,
@@ -224,18 +219,13 @@ export const AppwriteService = {
   },
 
   updateExpense: async (expenseId: string, updates: Partial<Expense>): Promise<Expense> => {
-    const doc = await databases.updateDocument(
-      DATABASE_ID,
-      COLLECTIONS.EXPENSES,
-      expenseId,
-      {
-        amount: updates.amount,
-        is_approximate: updates.isApproximate,
-        item: updates.item,
-        category_id: updates.categoryId,
-        date: updates.date,
-      }
-    );
+    const doc = await databases.updateDocument(DATABASE_ID, COLLECTIONS.EXPENSES, expenseId, {
+      amount: updates.amount,
+      is_approximate: updates.isApproximate,
+      item: updates.item,
+      category_id: updates.categoryId,
+      date: updates.date,
+    });
     return {
       id: doc.$id,
       userId: doc.user_id,

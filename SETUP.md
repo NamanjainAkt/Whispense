@@ -11,8 +11,7 @@ This guide walks you through setting up Appwrite Authentication, Backend, and Ge
 3. [Google OAuth Setup](#google-oauth-setup)
 4. [Gemini AI Setup](#gemini-ai-setup)
 5. [Environment Variables](#environment-variables)
-6. [Development Build Setup](#development-build-setup)
-7. [Testing Your Setup](#testing-your-setup)
+6. [Testing Your Setup](#testing-your-setup)
 8. [Troubleshooting](#troubleshooting)
 
 ---
@@ -238,70 +237,6 @@ EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 
 ---
 
-## Development Build Setup
-
-This app uses **Development Builds** instead of Expo Go for better native module support (required for `react-native-app-auth`).
-
-### Step 1: Install EAS CLI
-
-```bash
-npm install -g eas-cli
-```
-
-### Step 2: Login to Expo
-
-```bash
-eas login
-```
-
-### Step 3: Configure Build
-
-The `eas.json` file is already configured with a development profile:
-
-```json
-{
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    }
-  }
-}
-```
-
-### Step 4: Build Development Client
-
-**For Android:**
-```bash
-eas build --platform android --profile development
-```
-
-**For iOS (Mac only):**
-```bash
-eas build --platform ios --profile development
-```
-
-This will:
-- Build a custom APK/IPA with the dev client
-- Upload to Expo's build servers
-- Provide a download link when complete
-
-### Step 5: Install Development Build
-
-1. Download the APK/IPA from the build link
-2. Install on your device/emulator
-3. Open the app
-
-### Step 6: Run Development Server
-
-```bash
-npx expo start --dev-client
-```
-
-The dev client will connect to your local Metro bundler.
-
----
-
 ## Testing Your Setup
 
 ### Step 1: Verify Environment Variables
@@ -315,11 +250,13 @@ grep -E "^EXPO_PUBLIC_" .env
 
 ### Step 2: Test Appwrite Auth
 
-1. Run: `npx expo start`
+1. Run: `npx expo start -c`
 2. Press `a` for Android
 3. Tap "Sign in with Google"
-4. Complete OAuth flow
-5. Check Appwrite Console → Auth → Users - your email should appear
+4. OAuth should open in browser - complete Google sign-in
+5. After sign-in, app should return automatically
+6. Check Appwrite Console → Auth → Users - your email should appear
+7. Check Metro logs - should see OAuth success message
 
 ### Step 3: Test Database
 

@@ -3,6 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants';
 import type { User, Category, Expense } from '../types';
 
+// All app-specific storage keys (used for scoped clearAll)
+const ALL_APP_KEYS = Object.values(STORAGE_KEYS) as string[];
+
 export const CacheService = {
   // Generic methods
   set: async <T>(key: string, value: T): Promise<void> => {
@@ -11,15 +14,25 @@ export const CacheService = {
 
   get: async <T>(key: string): Promise<T | null> => {
     const value = await AsyncStorage.getItem(key);
-    return value ? JSON.parse(value) : null;
+    if (!value) return null;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      // Corrupted cache entry — remove it and return null
+      await AsyncStorage.removeItem(key);
+      return null;
+    }
   },
 
   delete: async (key: string): Promise<void> => {
     await AsyncStorage.removeItem(key);
   },
 
+  // Only clears app-specific keys, not third-party library storage
   clearAll: async (): Promise<void> => {
-    await AsyncStorage.clear();
+    for (const key of ALL_APP_KEYS) {
+      await AsyncStorage.removeItem(key);
+    }
   },
 
   // User methods

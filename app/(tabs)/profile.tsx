@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx - Profile & Settings Screen
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -18,18 +18,32 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 
 export default function ProfileScreen() {
   const theme = useTheme();
+  // authUser = our DB user, appwriteUser = Appwrite account object
   const { user: authUser, appwriteUser, logout } = useAuth();
-  const [user, setUser] = React.useState<User | null>(null);
-  const [budget, setBudget] = React.useState(String(user?.monthlyBudget || 30000));
-  const [threshold, setThreshold] = React.useState(user?.alertThreshold || 80);
+
+  const [user, setUser] = useState<User | null>(null);
+  // Fix stale closure: initialise budget/threshold from authUser if available,
+  // otherwise default. A separate useEffect syncs them when authUser arrives.
+  const [budget, setBudget] = useState('30000');
+  const [threshold, setThreshold] = useState(80);
   const [voiceConfirmation, setVoiceConfirmation] = useState(true);
   const [quickConfirm, setQuickConfirm] = useState(false);
+  const [totalExpenses, setTotalExpenses] = useState(0);
 
-  React.useEffect(() => {
-    CacheService.getUser().then(setUser);
+  // Load user from cache on mount
+  useEffect(() => {
+    CacheService.getUser().then((cached) => {
+      if (cached) {
+        setUser(cached);
+        setBudget(String(cached.monthlyBudget));
+        setThreshold(cached.alertThreshold);
+      }
+    });
+    CacheService.getExpenses().then((expenses) => setTotalExpenses(expenses.length));
   }, []);
 
-  React.useEffect(() => {
+  // Sync when authUser becomes available (overrides cached values with fresh data)
+  useEffect(() => {
     if (authUser) {
       setUser(authUser);
       setBudget(String(authUser.monthlyBudget));
@@ -42,13 +56,13 @@ export default function ProfileScreen() {
 
     try {
       const updated = await AppwriteService.updateUser(user.id, {
-        monthlyBudget: parseInt(budget) || 30000,
+        monthlyBudget: parseInt(budget, 10) || 30000,
         alertThreshold: threshold,
       });
       setUser(updated);
       await CacheService.setUser(updated);
       Alert.alert('Success', 'Settings saved');
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save settings');
     }
   };
@@ -79,7 +93,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -100,11 +114,10 @@ export default function ProfileScreen() {
     });
   };
 
-  const [totalExpenses, setTotalExpenses] = React.useState(0);
-
-  React.useEffect(() => {
-    CacheService.getExpenses().then(expenses => setTotalExpenses(expenses.length));
-  }, []);
+  // Appwrite Models.User has `name` and `email` — not fullName/firstName/primaryEmailAddress
+  const displayName = appwriteUser?.name || user?.name || 'User';
+  const displayEmail = appwriteUser?.email || user?.email || '';
+  const avatarLetter = displayName[0]?.toUpperCase() ?? 'U';
 
   return (
     <ScrollView
@@ -120,13 +133,13 @@ export default function ProfileScreen() {
             ]}
           >
             <Text variant="h2" color="primary">
-              {appwriteUser?.fullName?.[0] || appwriteUser?.firstName?.[0] || 'U'}
+              {avatarLetter}
             </Text>
           </View>
           <Spacer size="md" />
-          <Text variant="h2">{appwriteUser?.fullName || appwriteUser?.firstName || 'User'}</Text>
+          <Text variant="h2">{displayName}</Text>
           <Text variant="caption" color="textSecondary">
-            {appwriteUser?.primaryEmailAddress?.emailAddress}
+            {displayEmail}
           </Text>
         </View>
 
@@ -172,7 +185,8 @@ export default function ProfileScreen() {
               style={[
                 styles.sliderFill,
                 {
-                  width: `${((threshold - 50) / 50) * 100}%`,
+                  // Clamp to [0, 100]% — threshold range is 50–100
+                  width: `${Math.min(Math.max(((threshold - 50) / 50) * 100, 0), 100)}%`,
                   backgroundColor: theme.colors.primary,
                 },
               ]}
@@ -283,6 +297,7 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: '#E5E7EB',
     borderRadius: 2,
+    overflow: 'hidden',
   },
   sliderFill: {
     height: '100%',

@@ -34,22 +34,34 @@ export const NotificationService = {
       return null;
     }
 
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    await CacheService.setFcmToken(token);
+    try {
+      const tokenData = await Notifications.getExpoPushTokenAsync();
+      const token = tokenData?.data;
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#6366F1',
-      });
+      if (!token) {
+        console.warn('Could not retrieve push token');
+        return null;
+      }
+
+      await CacheService.setFcmToken(token);
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#6366F1',
+        });
+      }
+
+      return token;
+    } catch (error) {
+      console.error('Error getting push token:', error);
+      return null;
     }
-
-    return token;
   },
 
-  scheduleDailyReminder: async (hour: number = 20, minute: number = 0) => {
+  scheduleDailyReminder: async (hour = 20, minute = 0) => {
     await Notifications.cancelAllScheduledNotificationsAsync();
 
     await Notifications.scheduleNotificationAsync({
@@ -67,7 +79,7 @@ export const NotificationService = {
     });
   },
 
-  scheduleWeeklySummary: async (day: number = 0, hour: number = 10, minute: number = 0) => {
+  scheduleWeeklySummary: async (day = 0, hour = 10, minute = 0) => {
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Weekly Spending Summary',

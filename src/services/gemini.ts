@@ -1,9 +1,9 @@
 // src/services/gemini.ts
 import type { Expense, ParsedExpense } from '../types';
 
-// Gemini API configuration - Replace with your actual API key
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
+const GEMINI_API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 interface GeminiResponse {
   candidates: Array<{
@@ -14,6 +14,40 @@ interface GeminiResponse {
     };
   }>;
 }
+
+const callGemini = async (
+  prompt: string,
+  temperature: number,
+  maxOutputTokens: number
+): Promise<string> => {
+  if (!GEMINI_API_KEY) {
+    throw new Error(
+      'Gemini API key is not set. Add EXPO_PUBLIC_GEMINI_API_KEY to your .env file.'
+    );
+  }
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature, maxOutputTokens },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data: GeminiResponse = await response.json();
+
+  // Guard against empty candidates array
+  if (!data.candidates || data.candidates.length === 0) {
+    throw new Error('Gemini returned no candidates');
+  }
+
+  return data.candidates[0]?.content?.parts[0]?.text ?? '';
+};
 
 export const GeminiService = {
   parseExpense: async (
@@ -57,36 +91,8 @@ If you cannot determine the amount, respond with:
 }
 `;
 
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 256,
-          },
-        }),
-      });
+      const text = await callGemini(prompt, 0.1, 256);
 
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data: GeminiResponse = await response.json();
-      const text = data.candidates[0]?.content?.parts[0]?.text || '';
-
-      // Extract JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON found in response');
@@ -94,12 +100,13 @@ If you cannot determine the amount, respond with:
 
       const parsed = JSON.parse(jsonMatch[0]);
 
-      if (!parsed.amount) {
+      // Fix: use explicit null check — amount of 0 is still valid
+      if (parsed.amount === null || parsed.amount === undefined) {
         return null;
       }
 
       return {
-        amount: parsed.amount,
+        amount: parsed.amount as number,
         isApproximate: parsed.is_approximate || false,
         item: parsed.item || 'Unknown',
         category: parsed.category || availableCategories[0] || 'Other',
@@ -110,7 +117,9 @@ If you cannot determine the amount, respond with:
     }
   },
 
-  generateInsights: async (expenses: Expense[]): Promise<{
+  generateInsights: async (
+    expenses: Expense[]
+  ): Promise<{
     healthScore: number;
     suggestions: string[];
     patterns: {
@@ -120,14 +129,8 @@ If you cannot determine the amount, respond with:
     };
   }> => {
     try {
-      // Calculate basic stats first for context
       const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
       const dailyAverage = expenses.length > 0 ? totalSpent / 30 : 0;
-      const categories: { [key: string]: number } = {};
-
-      expenses.forEach((expense) => {
-        categories[expense.categoryId] = (categories[expense.categoryId] || 0) + 1;
-      });
 
       const prompt = `
 You are a financial advisor AI. Analyze these expenses and provide insights.
@@ -166,36 +169,8 @@ Suggestions should be actionable and include estimated savings in rupees (₹).
 Keep suggestions to 2-3 items max.
 `;
 
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 512,
-          },
-        }),
-      });
+      const text = await callGemini(prompt, 0.3, 512);
 
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data: GeminiResponse = await response.json();
-      const text = data.candidates[0]?.content?.parts[0]?.text || '';
-
-      // Extract JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON found in response');
@@ -214,7 +189,6 @@ Keep suggestions to 2-3 items max.
       };
     } catch (error) {
       console.error('Gemini insights error:', error);
-      // Return default insights on error
       return {
         healthScore: 50,
         suggestions: [

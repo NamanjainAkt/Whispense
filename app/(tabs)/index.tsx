@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx - Home Dashboard
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, Button } from '../../src/components/ui';
@@ -11,15 +11,16 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const { user, appwriteUser } = useAuth();
+  // Renamed to avoid shadowing the local appwriteExpenses / appwriteUserData variables below
+  const { user, appwriteUser: authAppwriteUser } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [userData, setUserData] = useState<User | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user) return;
 
-    // Load from cache first
+    // Load from cache first for instant UI
     const cachedExpenses = await CacheService.getExpenses();
     const cachedUser = await CacheService.getUser();
     setExpenses(cachedExpenses);
@@ -31,7 +32,8 @@ export default function HomeScreen() {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
-      const [appwriteExpenses, appwriteUser] = await Promise.all([
+      // Use distinct variable names to avoid shadowing context values
+      const [freshExpenses, freshUserData] = await Promise.all([
         AppwriteService.getExpenses(
           user.id,
           startOfMonth.toISOString(),
@@ -40,21 +42,21 @@ export default function HomeScreen() {
         AppwriteService.getUser(user.id),
       ]);
 
-      setExpenses(appwriteExpenses);
-      if (appwriteUser) {
-        setUserData(appwriteUser);
-        await CacheService.setUser(appwriteUser);
+      setExpenses(freshExpenses);
+      if (freshUserData) {
+        setUserData(freshUserData);
+        await CacheService.setUser(freshUserData);
       }
-      await CacheService.setExpenses(appwriteExpenses);
+      await CacheService.setExpenses(freshExpenses);
       await CacheService.setLastSync(Date.now());
     } catch (error) {
       console.error('Error syncing data:', error);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     loadData();
-  }, [user]);
+  }, [loadData]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -63,9 +65,9 @@ export default function HomeScreen() {
   };
 
   const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const monthlyBudget = userData?.monthlyBudget || 30000;
+  const monthlyBudget = userData?.monthlyBudget ?? 30000;
   const remaining = monthlyBudget - totalSpent;
-  const percentUsed = (totalSpent / monthlyBudget) * 100;
+  const percentUsed = monthlyBudget > 0 ? (totalSpent / monthlyBudget) * 100 : 0;
 
   const firstName = user?.name?.split(' ')[0] || 'User';
   const todayExpenses = expenses.filter((e) => {
@@ -93,14 +95,16 @@ export default function HomeScreen() {
           </Text>
           <Text variant="h2">{firstName}</Text>
         </View>
-        {appwriteUser?.imageUrl && (
+        {/* Appwrite Models.User uses `name` — no `imageUrl` property exists */}
+        {authAppwriteUser?.name ? (
           <View
-            style={[
-              styles.avatar,
-              { borderColor: theme.colors.border },
-            ]}
-          />
-        )}
+            style={[styles.avatar, { borderColor: theme.colors.border, backgroundColor: theme.colors.primaryLight }]}
+          >
+            <Text variant="caption" color="primary">
+              {authAppwriteUser.name[0]?.toUpperCase()}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <Spacer size="lg" />
@@ -212,6 +216,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   progressBar: {
     height: 8,

@@ -1,5 +1,5 @@
 // app/(tabs)/insights.tsx - Insights Screen
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, ProgressBar } from '../../src/components/ui';
@@ -28,14 +28,13 @@ export default function InsightsScreen() {
   const [insights, setInsights] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [user]);
+  const loadData = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-  const loadData = async () => {
-    if (!user) return;
-
-    // Load from cache
+    // Load from cache for instant UI
     const cachedExpenses = await CacheService.getExpenses();
     const cachedCategories = await CacheService.getCategories();
     const cachedInsights = await CacheService.getInsightsCache();
@@ -43,12 +42,14 @@ export default function InsightsScreen() {
     setExpenses(cachedExpenses);
     setCategories(cachedCategories);
 
+    // Use cached insights if they are less than 24 hours old
     if (cachedInsights && Date.now() - cachedInsights.timestamp < 24 * 60 * 60 * 1000) {
       setInsights(cachedInsights.data as InsightsData);
       setLoading(false);
+      return;
     }
 
-    // Sync from Appwrite
+    // Sync from Appwrite and generate fresh insights
     try {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
@@ -74,10 +75,22 @@ export default function InsightsScreen() {
       await CacheService.setInsightsCache(insightsData);
     } catch (error) {
       console.error('Error loading insights:', error);
+      // Fall back to default insights if generation fails
+      if (!insights) {
+        setInsights({
+          healthScore: 50,
+          suggestions: ['Continue logging expenses regularly to get personalized insights'],
+          patterns: { peakDays: [], timeOfDay: {}, frequency: {} },
+        });
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const getCategorySpending = () => {
     const spending: { [key: string]: number } = {};
@@ -93,11 +106,21 @@ export default function InsightsScreen() {
   const categorySpending = getCategorySpending();
   const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-  const getHealthScoreColor = (score: number) => {
+  const getHealthScoreColor = (score: number): 'error' | 'warning' | 'success' => {
     if (score <= 40) return 'error';
     if (score <= 70) return 'warning';
     return 'success';
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
+        <Text variant="body" color="textSecondary">
+          Generating insights...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -115,14 +138,12 @@ export default function InsightsScreen() {
               styles.scoreCircle,
               {
                 borderColor:
-                  theme.colors[
-                    getHealthScoreColor(insights?.healthScore || 0)
-                  ],
+                  theme.colors[getHealthScoreColor(insights?.healthScore ?? 0)],
               },
             ]}
           >
-            <Text variant="h1" color={getHealthScoreColor(insights?.healthScore || 0)}>
-              {insights?.healthScore || '--'}
+            <Text variant="h1" color={getHealthScoreColor(insights?.healthScore ?? 0)}>
+              {insights?.healthScore ?? '--'}
             </Text>
           </View>
         </View>
@@ -223,6 +244,13 @@ export default function InsightsScreen() {
               ))}
             </>
           )}
+
+          {insights.patterns.peakDays.length === 0 &&
+            Object.keys(insights.patterns.frequency).length === 0 && (
+              <Text variant="body" color="textMuted">
+                Not enough data yet for patterns
+              </Text>
+            )}
         </Card>
       )}
 
@@ -235,6 +263,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scoreContainer: {
     alignItems: 'center',

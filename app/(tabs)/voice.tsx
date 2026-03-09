@@ -1,5 +1,5 @@
 // app/(tabs)/voice.tsx - Voice Logging Screen
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,6 @@ import {
   Animated,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import * as Speech from 'expo-speech';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Button, Card, Spacer, Chip } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
@@ -28,9 +27,43 @@ export default function VoiceScreen() {
   const [error, setError] = useState('');
 
   const recordingRef = useRef<Audio.Recording | null>(null);
-  const animationRef = useRef<Animated.Value>(new Animated.Value(0)).current;
+  // Correct: keep Animated.Value in a ref, don't call .current immediately
+  const pulseAnim = useRef(new Animated.Value(0));
 
-  const loadCategories = async () => {
+  // Pre-compute stable bar heights once (avoids Math.random in render)
+  const barHeights = useRef<number[]>(
+    Array.from({ length: 20 }, () => 20 + Math.random() * 40)
+  );
+
+  // Pulse animation loop while recording
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (status === 'recording') {
+      pulseAnim.current.setValue(0);
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim.current, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: false,
+          }),
+          Animated.timing(pulseAnim.current, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: false,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      pulseAnim.current.setValue(0);
+    }
+    return () => {
+      animation?.stop();
+    };
+  }, [status]);
+
+  const loadCategories = useCallback(async () => {
     if (!user) return;
     const cached = await CacheService.getCategories();
     if (cached.length > 0) {
@@ -44,7 +77,7 @@ export default function VoiceScreen() {
         console.error('Error loading categories:', e);
       }
     }
-  };
+  }, [user]);
 
   const startRecording = async () => {
     try {
@@ -54,7 +87,13 @@ export default function VoiceScreen() {
       setParsedExpense(null);
       await loadCategories();
 
-      await Audio.requestPermissionsAsync();
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        setError('Microphone permission denied. Please allow access in Settings.');
+        setStatus('idle');
+        return;
+      }
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -64,9 +103,6 @@ export default function VoiceScreen() {
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
       recordingRef.current = recording;
-
-      // Start speech recognition
-      Speech.stop();
     } catch (err) {
       console.error('Failed to start recording:', err);
       setError('Could not start recording. Please try again.');
@@ -79,25 +115,27 @@ export default function VoiceScreen() {
 
     try {
       if (recordingRef.current) {
+        // Correctly awaiting stopAndUnloadAsync
         await recordingRef.current.stopAndUnloadAsync();
+        recordingRef.current = null;
       }
 
-      // Simulate STT and AI parsing for now
-      // In production, this would use actual speech-to-text
+      // TODO: Integrate a real speech-to-text service here.
+      // Currently using a placeholder transcript for development/testing.
       const mockTranscript = 'I spent 150 rupees on chai and snacks';
       setTranscript(mockTranscript);
 
-      // Call Gemini to parse
-      const parsed = await GeminiService.parseExpense(mockTranscript, categories.map(c => c.name));
+      const catNames = categories.map((c) => c.name);
+      const parsed = await GeminiService.parseExpense(mockTranscript, catNames);
 
       if (parsed) {
         setParsedExpense(parsed);
 
-        // Find matching category
-        const matchedCategory = categories.find(
-          c => c.name.toLowerCase() === parsed.category.toLowerCase()
-        ) || categories[0];
-        setSelectedCategory(matchedCategory || null);
+        const matchedCategory =
+          categories.find((c) => c.name.toLowerCase() === parsed.category.toLowerCase()) ||
+          categories[0] ||
+          null;
+        setSelectedCategory(matchedCategory);
 
         setStatus('parsed');
       } else {
@@ -127,7 +165,6 @@ export default function VoiceScreen() {
 
       await CacheService.addExpense(expense);
 
-      // Reset
       setStatus('idle');
       setTranscript('');
       setParsedExpense(null);
@@ -138,14 +175,19 @@ export default function VoiceScreen() {
     }
   };
 
-  const cancel = () => {
+  const cancel = async () => {
     setStatus('idle');
     setTranscript('');
     setParsedExpense(null);
     setSelectedCategory(null);
     setError('');
     if (recordingRef.current) {
-      recordingRef.current.stopAndUnloadAsync();
+      try {
+        await recordingRef.current.stopAndUnloadAsync();
+      } catch {
+        // Already stopped — ignore
+      }
+      recordingRef.current = null;
     }
   };
 
@@ -162,12 +204,14 @@ export default function VoiceScreen() {
               {
                 backgroundColor: theme.colors.primary,
                 opacity: 0.3 + (bar % 5) * 0.15,
-                height: status === 'recording'
-                  ? animationRef.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [20, 60 + Math.random() * 40],
-                    })
-                  : 20,
+                // Use pre-computed stable heights, animated by pulseAnim
+                height:
+                  status === 'recording'
+                    ? pulseAnim.current.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, barHeights.current[bar]],
+                      })
+                    : 20,
               },
             ]}
           />
@@ -193,7 +237,7 @@ export default function VoiceScreen() {
       <Spacer size="lg" />
 
       {/* Transcript */}
-      {transcript && (
+      {transcript ? (
         <Card>
           <Text variant="caption" color="textSecondary">
             Transcript
@@ -201,7 +245,7 @@ export default function VoiceScreen() {
           <Spacer size="sm" />
           <Text variant="body">{transcript}</Text>
         </Card>
-      )}
+      ) : null}
 
       {/* Parsed Result */}
       {status === 'parsed' && parsedExpense && (
@@ -255,7 +299,7 @@ export default function VoiceScreen() {
       )}
 
       {/* Error */}
-      {error && (
+      {error ? (
         <>
           <Spacer size="lg" />
           <Text variant="body" color="error" center>
@@ -266,7 +310,7 @@ export default function VoiceScreen() {
             Try Again
           </Button>
         </>
-      )}
+      ) : null}
 
       {/* Main Action Button */}
       {status === 'idle' && (

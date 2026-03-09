@@ -1,10 +1,11 @@
 // app/(tabs)/expenses.tsx - Expenses List Screen
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, Chip, Input, BottomSheet, Button } from '../../src/components/ui';
@@ -13,7 +14,6 @@ import { CacheService } from '../../src/services/cache';
 import { AppwriteService } from '../../src/services/appwrite';
 import type { Expense, Category } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
-import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function ExpensesScreen() {
   const theme = useTheme();
@@ -25,20 +25,16 @@ export default function ExpensesScreen() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [showEditSheet, setShowEditSheet] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, [user, selectedMonth, selectedCategory]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user) return;
 
-    // Load from cache
+    // Show cached data immediately to avoid blank screen
     const cachedExpenses = await CacheService.getExpenses();
     const cachedCategories = await CacheService.getCategories();
     setExpenses(cachedExpenses);
     setCategories(cachedCategories);
 
-    // Sync from Appwrite
+    // Then sync fresh data from Appwrite
     try {
       const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
       const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0);
@@ -52,20 +48,26 @@ export default function ExpensesScreen() {
         AppwriteService.getCategories(user.id),
       ]);
 
+      // Update state and cache with fresh data
       setExpenses(appwriteExpenses);
       setCategories(appwriteCategories);
       await CacheService.setExpenses(appwriteExpenses);
       await CacheService.setCategories(appwriteCategories);
     } catch (error) {
       console.error('Error loading expenses:', error);
+      // Keep showing cached data — no need to show error for background sync failure
     }
-  };
+  }, [user, selectedMonth]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const getCategoryById = (id: string) => categories.find((c) => c.id === id);
 
-  const groupByDate = (expenses: Expense[]) => {
+  const groupByDate = (expenseList: Expense[]) => {
     const groups: { [key: string]: Expense[] } = {};
-    expenses.forEach((expense) => {
+    expenseList.forEach((expense) => {
       const date = new Date(expense.date);
       const today = new Date();
       const yesterday = new Date(today);
@@ -99,6 +101,7 @@ export default function ExpensesScreen() {
       setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
     } catch (error) {
       console.error('Error deleting expense:', error);
+      Alert.alert('Error', 'Failed to delete expense. Please try again.');
     }
   };
 
@@ -115,6 +118,7 @@ export default function ExpensesScreen() {
       setEditingExpense(null);
     } catch (error) {
       console.error('Error updating expense:', error);
+      Alert.alert('Error', 'Failed to update expense. Please try again.');
     }
   };
 
@@ -132,7 +136,7 @@ export default function ExpensesScreen() {
           return (
             <TouchableOpacity
               key={i}
-              onPress={() => setSelectedMonth(date)}
+              onPress={() => setSelectedMonth(new Date(date))}
               style={styles.monthChip}
             >
               <Chip selected={isSelected}>
@@ -195,11 +199,11 @@ export default function ExpensesScreen() {
                         />
                         <View>
                           <Text variant="body">{expense.item}</Text>
-                          {expense.rawVoice && (
+                          {expense.rawVoice ? (
                             <Text variant="caption" color="textMuted" numberOfLines={1}>
                               "{expense.rawVoice}"
                             </Text>
-                          )}
+                          ) : null}
                         </View>
                       </View>
                       <Text variant="body" color="expense">
@@ -215,7 +219,7 @@ export default function ExpensesScreen() {
           </View>
         ))}
 
-        {expenses.length === 0 && (
+        {filteredExpenses.length === 0 && (
           <View style={styles.emptyState}>
             <Text variant="body" color="textMuted" center>
               No expenses found for this period
