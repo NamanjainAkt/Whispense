@@ -28,6 +28,9 @@ const client = new Client()
 const databases = new Databases(client);
 const account = new Account(client);
 
+// Export account for use in auth flows
+export { account };
+
 export const AppwriteService = {
   // Account
   getCurrentUser: async () => {
