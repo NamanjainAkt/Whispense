@@ -3,6 +3,9 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { account } from '../services/appwrite';
 
+const APPWRITE_ENDPOINT = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT ?? '';
+const APPWRITE_PROJECT_ID = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? '';
+
 export async function signInWithGoogle(): Promise<void> {
   try {
     // Create redirect URI using expo-linking
@@ -10,18 +13,18 @@ export async function signInWithGoogle(): Promise<void> {
     
     console.log('Redirect URI:', redirectUri);
 
-    // Get the OAuth URL from Appwrite
-    const loginUrl = account.createOAuth2Session(
-      'google',
-      redirectUri,
-      redirectUri
-    );
+    // Manually build OAuth URL (bypasses location.href issue)
+    const oauthUrl = 
+      `${APPWRITE_ENDPOINT}/account/sessions/oauth2/google` +
+      `?project=${APPWRITE_PROJECT_ID}` +
+      `&success=${encodeURIComponent(redirectUri)}` +
+      `&failure=${encodeURIComponent(redirectUri)}`;
 
-    console.log('OAuth URL:', loginUrl.toString());
+    console.log('OAuth URL:', oauthUrl);
 
     // Open the OAuth flow in a browser
     const result = await WebBrowser.openAuthSessionAsync(
-      loginUrl.toString(),
+      oauthUrl,
       redirectUri
     );
 
