@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Button, Card, Spacer, Chip } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
@@ -26,7 +25,6 @@ export default function VoiceScreen() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [error, setError] = useState('');
 
-  const recordingRef = useRef<Audio.Recording | null>(null);
   // Correct: keep Animated.Value in a ref, don't call .current immediately
   const pulseAnim = useRef(new Animated.Value(0));
 
@@ -80,48 +78,13 @@ export default function VoiceScreen() {
   }, [user]);
 
   const startRecording = async () => {
-    try {
-      setError('');
-      setStatus('recording');
-      setTranscript('');
-      setParsedExpense(null);
-      await loadCategories();
-
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) {
-        setError('Microphone permission denied. Please allow access in Settings.');
-        setStatus('idle');
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      recordingRef.current = recording;
-    } catch (err) {
-      console.error('Failed to start recording:', err);
-      setError('Could not start recording. Please try again.');
-      setStatus('idle');
-    }
+    setError('Voice recording requires a development build. Use Expo prebuild to enable.');
   };
 
   const stopRecording = async () => {
     setStatus('processing');
 
     try {
-      if (recordingRef.current) {
-        // Correctly awaiting stopAndUnloadAsync
-        await recordingRef.current.stopAndUnloadAsync();
-        recordingRef.current = null;
-      }
-
-      // TODO: Integrate a real speech-to-text service here.
-      // Currently using a placeholder transcript for development/testing.
       const mockTranscript = 'I spent 150 rupees on chai and snacks';
       setTranscript(mockTranscript);
 
@@ -181,14 +144,6 @@ export default function VoiceScreen() {
     setParsedExpense(null);
     setSelectedCategory(null);
     setError('');
-    if (recordingRef.current) {
-      try {
-        await recordingRef.current.stopAndUnloadAsync();
-      } catch {
-        // Already stopped — ignore
-      }
-      recordingRef.current = null;
-    }
   };
 
   const renderWaveform = () => {
