@@ -3,7 +3,7 @@ import type { Expense, ParsedExpense } from '../types';
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 interface GeminiResponse {
   candidates: Array<{
@@ -18,7 +18,8 @@ interface GeminiResponse {
 const callGemini = async (
   prompt: string,
   temperature: number,
-  maxOutputTokens: number
+  maxOutputTokens: number,
+  audioBase64?: string
 ): Promise<string> => {
   if (!GEMINI_API_KEY) {
     throw new Error(
@@ -26,16 +27,28 @@ const callGemini = async (
     );
   }
 
+  const parts: any[] = [{ text: prompt }];
+  if (audioBase64) {
+    parts.push({
+      inline_data: {
+        mime_type: 'audio/m4a', // Default for expo-av HIGH_QUALITY on iOS/Android
+        data: audioBase64,
+      },
+    });
+  }
+
   const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts }],
       generationConfig: { temperature, maxOutputTokens },
     }),
   });
 
   if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    console.error('Gemini API error body:', errorData);
     throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
   }
 
@@ -50,6 +63,22 @@ const callGemini = async (
 };
 
 export const GeminiService = {
+  transcribeAudio: async (audioBase64: string): Promise<string> => {
+    try {
+      const prompt = `
+        Transcribe this audio recording of a person logging an expense.
+        The user might be speaking in English or a mix of Hindi and English (Hinglish).
+        Only return the transcription text, nothing else.
+        If the audio is silent or unclear, return "Could not transcribe".
+      `;
+      const transcript = await callGemini(prompt, 0.1, 256, audioBase64);
+      return transcript.trim();
+    } catch (error) {
+      console.error('Gemini transcription error:', error);
+      throw error;
+    }
+  },
+
   parseExpense: async (
     transcript: string,
     availableCategories: string[]

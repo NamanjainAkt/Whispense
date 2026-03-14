@@ -1,6 +1,6 @@
 // app/(tabs)/insights.tsx - Insights Screen
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { View, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, ProgressBar } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
@@ -9,6 +9,9 @@ import { AppwriteService } from '../../src/services/appwrite';
 import { GeminiService } from '../../src/services/gemini';
 import type { Expense, Category } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
+import { BarChart, PieChart } from 'react-native-chart-kit';
+
+const screenWidth = Dimensions.get('window').width;
 
 interface InsightsData {
   healthScore: number;
@@ -34,7 +37,6 @@ export default function InsightsScreen() {
       return;
     }
 
-    // Load from cache for instant UI
     const cachedExpenses = await CacheService.getExpenses();
     const cachedCategories = await CacheService.getCategories();
     const cachedInsights = await CacheService.getInsightsCache();
@@ -42,14 +44,12 @@ export default function InsightsScreen() {
     setExpenses(cachedExpenses);
     setCategories(cachedCategories);
 
-    // Use cached insights if they are less than 24 hours old
     if (cachedInsights && Date.now() - cachedInsights.timestamp < 24 * 60 * 60 * 1000) {
       setInsights(cachedInsights.data as InsightsData);
       setLoading(false);
       return;
     }
 
-    // Sync from Appwrite and generate fresh insights
     try {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
@@ -69,13 +69,11 @@ export default function InsightsScreen() {
       await CacheService.setExpenses(appwriteExpenses);
       await CacheService.setCategories(appwriteCategories);
 
-      // Generate insights via Gemini
       const insightsData = await GeminiService.generateInsights(appwriteExpenses);
       setInsights(insightsData);
       await CacheService.setInsightsCache(insightsData);
     } catch (error) {
       console.error('Error loading insights:', error);
-      // Fall back to default insights if generation fails
       if (!insights) {
         setInsights({
           healthScore: 50,
@@ -86,13 +84,49 @@ export default function InsightsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const getCategorySpending = () => {
+  const chartConfig = {
+    backgroundColor: theme.colors.background,
+    backgroundGradientFrom: theme.colors.background,
+    backgroundGradientTo: theme.colors.background,
+    decimalPlaces: 0,
+    color: (opacity = 1) => `rgba(${parseInt(theme.colors.primary.slice(1, 3), 16)}, ${parseInt(theme.colors.primary.slice(3, 5), 16)}, ${parseInt(theme.colors.primary.slice(5, 7), 16)}, ${opacity})`,
+    labelColor: (opacity = 1) => theme.colors.textSecondary,
+    style: {
+      borderRadius: 16,
+    },
+    propsForDots: {
+      r: '6',
+      strokeWidth: '2',
+      stroke: theme.colors.primary,
+    },
+  };
+
+  const dailySpendingData = useMemo(() => {
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return d.toISOString().split('T')[0];
+    });
+
+    const dailyTotals = last7Days.map(date => {
+      return expenses
+        .filter(e => e.date.startsWith(date))
+        .reduce((sum, e) => sum + e.amount, 0);
+    });
+
+    return {
+      labels: last7Days.map(d => d.slice(8, 10)), // Day numbers
+      datasets: [{ data: dailyTotals }],
+    };
+  }, [expenses]);
+
+  const pieChartData = useMemo(() => {
     const spending: { [key: string]: number } = {};
     expenses.forEach((expense) => {
       const category = categories.find((c) => c.id === expense.categoryId);
@@ -100,11 +134,18 @@ export default function InsightsScreen() {
         spending[category.name] = (spending[category.name] || 0) + expense.amount;
       }
     });
-    return spending;
-  };
 
-  const categorySpending = getCategorySpending();
-  const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
+    return Object.entries(spending).map(([name, amount]) => {
+      const category = categories.find(c => c.name === name);
+      return {
+        name,
+        population: amount,
+        color: category?.color || theme.colors.primary,
+        legendFontColor: theme.colors.textSecondary,
+        legendFontSize: 12,
+      };
+    });
+  }, [expenses, categories, theme.colors.primary, theme.colors.textSecondary]);
 
   const getHealthScoreColor = (score: number): 'error' | 'warning' | 'success' => {
     if (score <= 40) return 'error';
@@ -123,9 +164,7 @@ export default function InsightsScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
+    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Financial Health Score */}
       <Card shadow="medium">
         <Text variant="caption" color="textSecondary" center>
@@ -136,10 +175,7 @@ export default function InsightsScreen() {
           <View
             style={[
               styles.scoreCircle,
-              {
-                borderColor:
-                  theme.colors[getHealthScoreColor(insights?.healthScore ?? 0)],
-              },
+              { borderColor: theme.colors[getHealthScoreColor(insights?.healthScore ?? 0)] },
             ]}
           >
             <Text variant="h1" color={getHealthScoreColor(insights?.healthScore ?? 0)}>
@@ -159,45 +195,39 @@ export default function InsightsScreen() {
 
       <Spacer size="lg" />
 
-      {/* Category Breakdown */}
-      <Text variant="h3">Category Breakdown</Text>
-      <Spacer size="md" />
+      {/* Daily Spending Trend */}
+      <Text variant="h3">Spending Trend (Last 7 Days)</Text>
+      <Spacer size="sm" />
+      <BarChart
+        data={dailySpendingData}
+        width={screenWidth - 32}
+        height={220}
+        yAxisLabel={DEFAULT_CURRENCY}
+        yAxisSuffix=""
+        chartConfig={chartConfig}
+        verticalLabelRotation={0}
+        fromZero
+        style={{ marginVertical: 8, borderRadius: 16 }}
+      />
 
-      {Object.entries(categorySpending)
-        .sort(([, a], [, b]) => b - a)
-        .map(([categoryName, amount]) => {
-          const category = categories.find((c) => c.name === categoryName);
-          const percentage = totalSpent > 0 ? (amount / totalSpent) * 100 : 0;
+      <Spacer size="lg" />
 
-          return (
-            <View key={categoryName} style={styles.categoryRow}>
-              <View style={styles.categoryHeader}>
-                <View style={styles.categoryLeft}>
-                  <View
-                    style={[
-                      styles.categoryDot,
-                      { backgroundColor: category?.color || theme.colors.textMuted },
-                    ]}
-                  />
-                  <Text variant="body">{categoryName}</Text>
-                </View>
-                <Text variant="caption" color="textSecondary">
-                  {DEFAULT_CURRENCY}{amount.toLocaleString()} ({percentage.toFixed(0)}%)
-                </Text>
-              </View>
-              <Spacer size="sm" />
-              <ProgressBar
-                progress={percentage / 100}
-                color={percentage > 50 ? 'error' : 'primary'}
-              />
-            </View>
-          );
-        })}
-
-      {Object.keys(categorySpending).length === 0 && (
-        <Text variant="body" color="textMuted">
-          No expenses recorded yet
-        </Text>
+      {/* Category Distribution */}
+      <Text variant="h3">Category Distribution</Text>
+      <Spacer size="sm" />
+      {pieChartData.length > 0 ? (
+        <PieChart
+          data={pieChartData}
+          width={screenWidth - 32}
+          height={200}
+          chartConfig={chartConfig}
+          accessor="population"
+          backgroundColor="transparent"
+          paddingLeft="15"
+          absolute
+        />
+      ) : (
+        <Text variant="body" color="textMuted">No data for chart</Text>
       )}
 
       <Spacer size="lg" />
@@ -211,12 +241,6 @@ export default function InsightsScreen() {
           <Text variant="body">{suggestion}</Text>
         </Card>
       ))}
-
-      {(!insights?.suggestions || insights.suggestions.length === 0) && (
-        <Text variant="body" color="textMuted">
-          Keep logging expenses to get personalized suggestions
-        </Text>
-      )}
 
       <Spacer size="lg" />
 
@@ -244,13 +268,6 @@ export default function InsightsScreen() {
               ))}
             </>
           )}
-
-          {insights.patterns.peakDays.length === 0 &&
-            Object.keys(insights.patterns.frequency).length === 0 && (
-              <Text variant="body" color="textMuted">
-                Not enough data yet for patterns
-              </Text>
-            )}
         </Card>
       )}
 

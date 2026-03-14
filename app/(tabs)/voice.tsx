@@ -7,11 +7,13 @@ import {
   Animated,
 } from 'react-native';
 import { useTheme } from '../../src/theme/useTheme';
-import { Text, Button, Card, Spacer, Chip } from '../../src/components/ui';
+import { Text, Button, Card, Spacer, Chip, Input } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
 import { GeminiService } from '../../src/services/gemini';
 import { AppwriteService } from '../../src/services/appwrite';
 import { CacheService } from '../../src/services/cache';
+import AudioService from '../../src/services/audio';
+import SyncService from '../../src/services/sync';
 import type { Category, ParsedExpense } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
 
@@ -25,41 +27,21 @@ export default function VoiceScreen() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [error, setError] = useState('');
 
-  // Correct: keep Animated.Value in a ref, don't call .current immediately
-  const pulseAnim = useRef(new Animated.Value(0));
+  // Editable fields for Quick Edit
+  const [editAmount, setEditAmount] = useState('');
+  const [editItem, setEditItem] = useState('');
 
-  // Pre-compute stable bar heights once (avoids Math.random in render)
-  const barHeights = useRef<number[]>(
-    Array.from({ length: 20 }, () => 20 + Math.random() * 40)
-  );
-
-  // Pulse animation loop while recording
   useEffect(() => {
-    let animation: Animated.CompositeAnimation | null = null;
-    if (status === 'recording') {
-      pulseAnim.current.setValue(0);
-      animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim.current, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: false,
-          }),
-          Animated.timing(pulseAnim.current, {
-            toValue: 0,
-            duration: 600,
-            useNativeDriver: false,
-          }),
-        ])
-      );
-      animation.start();
-    } else {
-      pulseAnim.current.setValue(0);
+    loadCategories();
+    checkPermissions();
+  }, []);
+
+  const checkPermissions = async () => {
+    const granted = await AudioService.requestPermissions();
+    if (!granted) {
+      setError('Microphone permission is required to use voice logging.');
     }
-    return () => {
-      animation?.stop();
-    };
-  }, [status]);
+  };
 
   const loadCategories = useCallback(async () => {
     if (!user) return;
@@ -78,21 +60,52 @@ export default function VoiceScreen() {
   }, [user]);
 
   const startRecording = async () => {
-    setError('Voice recording requires a development build. Use Expo prebuild to enable.');
+    try {
+      const granted = await AudioService.requestPermissions();
+      if (!granted) {
+        setError('Microphone permission denied.');
+        return;
+      }
+      setError('');
+      setStatus('recording');
+      await AudioService.startRecording();
+    } catch (err) {
+      console.error('Start recording error:', err);
+      setError('Failed to start recording. Ensure you are on a real device or a compatible emulator.');
+      setStatus('idle');
+    }
   };
 
   const stopRecording = async () => {
     setStatus('processing');
 
     try {
-      const mockTranscript = 'I spent 150 rupees on chai and snacks';
-      setTranscript(mockTranscript);
+      const { base64 } = await AudioService.stopRecording();
+      
+      if (!base64) {
+        setError('No audio captured. Please try again.');
+        setStatus('idle');
+        return;
+      }
 
+      // 1. Transcribe
+      const transcribedText = await GeminiService.transcribeAudio(base64);
+      setTranscript(transcribedText);
+
+      if (transcribedText === 'Could not transcribe') {
+        setError('Could not understand the audio. Please speak clearly.');
+        setStatus('idle');
+        return;
+      }
+
+      // 2. Parse
       const catNames = categories.map((c) => c.name);
-      const parsed = await GeminiService.parseExpense(mockTranscript, catNames);
+      const parsed = await GeminiService.parseExpense(transcribedText, catNames);
 
       if (parsed) {
         setParsedExpense(parsed);
+        setEditAmount(String(parsed.amount));
+        setEditItem(parsed.item);
 
         const matchedCategory =
           categories.find((c) => c.name.toLowerCase() === parsed.category.toLowerCase()) ||
@@ -107,30 +120,54 @@ export default function VoiceScreen() {
       }
     } catch (err) {
       console.error('Error processing:', err);
-      setError('Something went wrong. Please try again.');
+      setError('Something went wrong. Please check your internet connection and try again.');
       setStatus('idle');
     }
   };
 
   const saveExpense = async () => {
-    if (!user || !parsedExpense || !selectedCategory) return;
+    if (!user || !selectedCategory) return;
+
+    const finalAmount = parseFloat(editAmount);
+    if (isNaN(finalAmount)) {
+      setError('Please enter a valid amount.');
+      return;
+    }
 
     try {
-      const expense = await AppwriteService.createExpense({
+      const expenseData = {
         userId: user.id,
-        amount: parsedExpense.amount,
-        isApproximate: parsedExpense.isApproximate,
-        item: parsedExpense.item,
+        amount: finalAmount,
+        isApproximate: parsedExpense?.isApproximate || false,
+        item: editItem,
         categoryId: selectedCategory.id,
         rawVoice: transcript,
         date: new Date().toISOString(),
-      });
+      };
 
-      await CacheService.addExpense(expense);
+      // Perform with offline-first support
+      await SyncService.perform(
+        () => AppwriteService.createExpense(expenseData),
+        {
+          type: 'create',
+          collection: 'expenses',
+          id: `local-${Date.now()}`,
+          data: expenseData,
+          timestamp: Date.now(),
+        }
+      );
+
+      await CacheService.addExpense({
+        ...expenseData,
+        id: `local-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      });
 
       setStatus('idle');
       setTranscript('');
       setParsedExpense(null);
+      setEditAmount('');
+      setEditItem('');
       setSelectedCategory(null);
     } catch (err) {
       console.error('Error saving expense:', err);
@@ -142,6 +179,8 @@ export default function VoiceScreen() {
     setStatus('idle');
     setTranscript('');
     setParsedExpense(null);
+    setEditAmount('');
+    setEditItem('');
     setSelectedCategory(null);
     setError('');
   };
@@ -159,7 +198,6 @@ export default function VoiceScreen() {
               {
                 backgroundColor: theme.colors.primary,
                 opacity: 0.3 + (bar % 5) * 0.15,
-                // Use pre-computed stable heights, animated by pulseAnim
                 height:
                   status === 'recording'
                     ? pulseAnim.current.interpolate({
@@ -202,24 +240,30 @@ export default function VoiceScreen() {
         </Card>
       ) : null}
 
-      {/* Parsed Result */}
-      {status === 'parsed' && parsedExpense && (
+      {/* Parsed Result & Quick Edit */}
+      {status === 'parsed' && (
         <>
           <Spacer size="lg" />
           <Card>
-            <View style={styles.parsedRow}>
-              <Text variant="caption" color="textSecondary">Amount</Text>
-              <Text variant="h2" color="expense">
-                {parsedExpense.isApproximate && '~'}
-                {DEFAULT_CURRENCY}{parsedExpense.amount}
-              </Text>
-            </View>
-
-            <Spacer size="md" />
-
-            <View style={styles.parsedRow}>
-              <Text variant="caption" color="textSecondary">Item</Text>
-              <Text variant="body">{parsedExpense.item}</Text>
+            <View style={styles.editRow}>
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text variant="caption" color="textSecondary">Amount</Text>
+                <Input
+                  value={editAmount}
+                  onChangeText={setEditAmount}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  prefix={DEFAULT_CURRENCY}
+                />
+              </View>
+              <View style={{ flex: 2 }}>
+                <Text variant="caption" color="textSecondary">What for?</Text>
+                <Input
+                  value={editItem}
+                  onChangeText={setEditItem}
+                  placeholder="e.g. Coffee"
+                />
+              </View>
             </View>
 
             <Spacer size="md" />
@@ -245,10 +289,10 @@ export default function VoiceScreen() {
 
           <Spacer size="lg" />
 
-          <Button onPress={saveExpense}>Confirm</Button>
+          <Button onPress={saveExpense}>Confirm & Save</Button>
           <Spacer size="md" />
           <Button variant="ghost" onPress={cancel}>
-            Cancel
+            Discard
           </Button>
         </>
       )}
@@ -314,6 +358,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   chipContainer: {
     flexDirection: 'row',
