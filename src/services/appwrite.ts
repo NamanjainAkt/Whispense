@@ -54,7 +54,6 @@ export const AppwriteService = {
         avatar_url: userData.avatarUrl,
         monthly_budget: DEFAULT_MONTHLY_BUDGET,
         alert_threshold: DEFAULT_ALERT_THRESHOLD,
-        created_at: new Date().toISOString(),
       }
     );
 
@@ -68,7 +67,7 @@ export const AppwriteService = {
       avatarUrl: user.avatar_url,
       monthlyBudget: user.monthly_budget,
       alertThreshold: user.alert_threshold,
-      createdAt: user.created_at,
+      createdAt: user.$createdAt,
     };
   },
 
@@ -82,7 +81,7 @@ export const AppwriteService = {
         avatarUrl: user.avatar_url,
         monthlyBudget: user.monthly_budget,
         alertThreshold: user.alert_threshold,
-        createdAt: user.created_at,
+        createdAt: user.$createdAt,
       };
     } catch {
       return null;
@@ -103,7 +102,7 @@ export const AppwriteService = {
       avatarUrl: user.avatar_url,
       monthlyBudget: user.monthly_budget,
       alertThreshold: user.alert_threshold,
-      createdAt: user.created_at,
+      createdAt: user.$createdAt,
     };
   },
 
@@ -188,7 +187,7 @@ export const AppwriteService = {
       categoryId: doc.category_id,
       rawVoice: doc.raw_voice,
       date: doc.date,
-      createdAt: doc.created_at,
+      createdAt: doc.$createdAt,
     }));
   },
 
@@ -205,7 +204,6 @@ export const AppwriteService = {
         category_id: expense.categoryId,
         raw_voice: expense.rawVoice,
         date: expense.date,
-        created_at: new Date().toISOString(),
       }
     );
     return {
@@ -217,7 +215,7 @@ export const AppwriteService = {
       categoryId: doc.category_id,
       rawVoice: doc.raw_voice,
       date: doc.date,
-      createdAt: doc.created_at,
+      createdAt: doc.$createdAt,
     };
   },
 
@@ -238,7 +236,7 @@ export const AppwriteService = {
       categoryId: doc.category_id,
       rawVoice: doc.raw_voice,
       date: doc.date,
-      createdAt: doc.created_at,
+      createdAt: doc.$createdAt,
     };
   },
 

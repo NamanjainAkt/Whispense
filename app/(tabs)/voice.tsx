@@ -9,13 +9,14 @@ import {
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Button, Card, Spacer, Chip, Input } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
-import { GeminiService } from '../../src/services/gemini';
+import { AIService } from '../../src/services/ai';
 import { AppwriteService } from '../../src/services/appwrite';
 import { CacheService } from '../../src/services/cache';
-import AudioService from '../../src/services/audio';
 import SyncService from '../../src/services/sync';
 import type { Category, ParsedExpense } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
+import Voice, { SpeechResultsEvent, SpeechErrorEvent } from '@react-native-voice/voice';
+import * as Speech from 'expo-speech';
 
 export default function VoiceScreen() {
   const theme = useTheme();
@@ -31,76 +32,57 @@ export default function VoiceScreen() {
   const [editAmount, setEditAmount] = useState('');
   const [editItem, setEditItem] = useState('');
 
+  // Animation refs
+  const pulseAnim = useRef(new Animated.Value(0));
+  const barHeights = useRef(Array.from({ length: 20 }, () => Math.random() * 40 + 20));
+
   useEffect(() => {
     loadCategories();
-    checkPermissions();
+    
+    // Voice event listeners
+    Voice.onSpeechStart = onSpeechStart;
+    Voice.onSpeechEnd = onSpeechEnd;
+    Voice.onSpeechError = onSpeechError;
+    Voice.onSpeechResults = onSpeechResults;
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners);
+    };
   }, []);
 
-  const checkPermissions = async () => {
-    const granted = await AudioService.requestPermissions();
-    if (!granted) {
-      setError('Microphone permission is required to use voice logging.');
-    }
+  const onSpeechStart = () => {
+    setStatus('recording');
+    setError('');
   };
 
-  const loadCategories = useCallback(async () => {
-    if (!user) return;
-    const cached = await CacheService.getCategories();
-    if (cached.length > 0) {
-      setCategories(cached);
-    } else {
-      try {
-        const appwriteCategories = await AppwriteService.getCategories(user.id);
-        setCategories(appwriteCategories);
-        await CacheService.setCategories(appwriteCategories);
-      } catch (e) {
-        console.error('Error loading categories:', e);
-      }
-    }
-  }, [user]);
+  const onSpeechEnd = () => {
+    // We don't set processing here yet because results might still be coming
+  };
 
-  const startRecording = async () => {
-    try {
-      const granted = await AudioService.requestPermissions();
-      if (!granted) {
-        setError('Microphone permission denied.');
-        return;
-      }
-      setError('');
-      setStatus('recording');
-      await AudioService.startRecording();
-    } catch (err) {
-      console.error('Start recording error:', err);
-      setError('Failed to start recording. Ensure you are on a real device or a compatible emulator.');
+  const onSpeechError = (e: SpeechErrorEvent) => {
+    console.error('onSpeechError: ', e);
+    // Don't show error if user just didn't say anything
+    if (e.error?.message?.includes('No match')) {
       setStatus('idle');
+      return;
+    }
+    setError(e.error?.message || 'Speech recognition error');
+    setStatus('idle');
+  };
+
+  const onSpeechResults = async (e: SpeechResultsEvent) => {
+    if (e.value && e.value.length > 0) {
+      const result = e.value[0];
+      setTranscript(result);
+      await processTranscript(result);
     }
   };
 
-  const stopRecording = async () => {
+  const processTranscript = async (text: string) => {
     setStatus('processing');
-
     try {
-      const { base64 } = await AudioService.stopRecording();
-      
-      if (!base64) {
-        setError('No audio captured. Please try again.');
-        setStatus('idle');
-        return;
-      }
-
-      // 1. Transcribe
-      const transcribedText = await GeminiService.transcribeAudio(base64);
-      setTranscript(transcribedText);
-
-      if (transcribedText === 'Could not transcribe') {
-        setError('Could not understand the audio. Please speak clearly.');
-        setStatus('idle');
-        return;
-      }
-
-      // 2. Parse
       const catNames = categories.map((c) => c.name);
-      const parsed = await GeminiService.parseExpense(transcribedText, catNames);
+      const parsed = await AIService.parseExpense(text, catNames);
 
       if (parsed) {
         setParsedExpense(parsed);
@@ -113,6 +95,12 @@ export default function VoiceScreen() {
           null;
         setSelectedCategory(matchedCategory);
 
+        // Mobile built-in Text-to-Speech confirmation
+        Speech.speak(`Parsed ${parsed.amount} ${DEFAULT_CURRENCY} for ${parsed.item}`, {
+          rate: 1.0,
+          pitch: 1.0,
+        });
+
         setStatus('parsed');
       } else {
         setError('Could not parse expense. Please try again or enter manually.');
@@ -120,8 +108,70 @@ export default function VoiceScreen() {
       }
     } catch (err) {
       console.error('Error processing:', err);
-      setError('Something went wrong. Please check your internet connection and try again.');
+      setError('Something went wrong. Please check your internet connection.');
       setStatus('idle');
+    }
+  };
+
+  useEffect(() => {
+    if (status === 'recording') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim.current, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: false,
+          }),
+          Animated.timing(pulseAnim.current, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: false,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.current.setValue(0);
+    }
+  }, [status]);
+
+  const loadCategories = useCallback(async () => {
+    if (!user) return;
+    
+    // Load from cache first for instant UI
+    const cached = await CacheService.getCategories();
+    if (cached.length > 0) {
+      setCategories(cached);
+    }
+
+    // Try to sync from Appwrite
+    try {
+      const appwriteCategories = await AppwriteService.getCategories(user.id);
+      if (appwriteCategories.length > 0) {
+        setCategories(appwriteCategories);
+        await CacheService.setCategories(appwriteCategories);
+      }
+    } catch (e) {
+      console.warn('[VoiceScreen] Error syncing categories from Appwrite:', e);
+    }
+  }, [user]);
+
+  const startListening = async () => {
+    try {
+      setTranscript('');
+      setParsedExpense(null);
+      setError('');
+      await Voice.start('en-IN'); // Support for Indian accent
+    } catch (e) {
+      console.error(e);
+      setError('Failed to start speech recognition.');
+    }
+  };
+
+  const stopListening = async () => {
+    try {
+      await Voice.stop();
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -146,7 +196,7 @@ export default function VoiceScreen() {
       };
 
       // Perform with offline-first support
-      await SyncService.perform(
+      const result = await SyncService.perform(
         () => AppwriteService.createExpense(expenseData),
         {
           type: 'create',
@@ -157,11 +207,17 @@ export default function VoiceScreen() {
         }
       );
 
-      await CacheService.addExpense({
+      // If online success, result is the Appwrite document.
+      const finalExpense = result || {
         ...expenseData,
         id: `local-${Date.now()}`,
         createdAt: new Date().toISOString(),
-      });
+      };
+
+      await CacheService.addExpense(finalExpense);
+
+      // Confirmation TTS
+      Speech.speak(`Saved ${finalAmount} ${DEFAULT_CURRENCY} for ${editItem}`, { rate: 1.0 });
 
       setStatus('idle');
       setTranscript('');
@@ -315,7 +371,7 @@ export default function VoiceScreen() {
       {status === 'idle' && (
         <TouchableOpacity
           style={[styles.micButton, { backgroundColor: theme.colors.primary }]}
-          onPress={startRecording}
+          onPress={startListening}
         >
           <Text variant="h2" color="white">
             🎤
@@ -326,7 +382,7 @@ export default function VoiceScreen() {
       {status === 'recording' && (
         <TouchableOpacity
           style={[styles.micButton, { backgroundColor: theme.colors.error }]}
-          onPress={stopRecording}
+          onPress={stopListening}
         >
           <Text variant="h2" color="white">
             ⏹

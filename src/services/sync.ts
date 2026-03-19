@@ -10,6 +10,9 @@ class SyncService {
   }
 
   private init() {
+    // Check initial state
+    this.processPendingSync();
+
     // Listen for network changes
     NetInfo.addEventListener((state) => {
       if (state.isConnected && state.isInternetReachable) {
@@ -27,21 +30,30 @@ class SyncService {
     this.isSyncing = true;
     console.log(`[SyncService] Processing ${pending.length} pending operations...`);
 
-    const remaining: PendingOperation[] = [];
+    const processedIds: string[] = [];
 
     for (const op of pending) {
       try {
         await this.executeOperation(op);
+        processedIds.push(`${op.timestamp}-${op.id}`);
       } catch (error) {
         console.error(`[SyncService] Failed to sync operation:`, op, error);
-        // Keep in queue if it's a network error, otherwise drop or handle specifically
-        remaining.push(op);
+        
+        // If it's a structural error (like the "Unknown attribute" we saw earlier), 
+        // we might want to drop it after a few retries.
+        // For now, we'll keep it to retry later on network change.
       }
     }
 
-    await CacheService.clearPendingSync();
-    if (remaining.length > 0) {
-      for (const op of remaining) {
+    // Only remove what we actually processed
+    if (processedIds.length > 0) {
+      const currentPending = await CacheService.getPendingSync();
+      const filtered = currentPending.filter(
+        (op) => !processedIds.includes(`${op.timestamp}-${op.id}`)
+      );
+      
+      await CacheService.clearPendingSync();
+      for (const op of filtered) {
         await CacheService.addToPendingSync(op);
       }
     }

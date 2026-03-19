@@ -96,9 +96,20 @@ export default function ExpensesScreen() {
 
   const handleDelete = async (expense: Expense) => {
     try {
-      await AppwriteService.deleteExpense(expense.id);
+      await SyncService.perform(
+        () => AppwriteService.deleteExpense(expense.id),
+        {
+          type: 'delete',
+          collection: 'expenses',
+          id: expense.id,
+          timestamp: Date.now(),
+        }
+      );
+      
       await CacheService.deleteExpense(expense.id);
       setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
+      setShowEditSheet(false);
+      setEditingExpense(null);
     } catch (error) {
       console.error('Error deleting expense:', error);
       Alert.alert('Error', 'Failed to delete expense. Please try again.');
@@ -109,11 +120,24 @@ export default function ExpensesScreen() {
     if (!editingExpense) return;
 
     try {
-      const updated = await AppwriteService.updateExpense(editingExpense.id, updates);
-      await CacheService.updateExpense(editingExpense.id, updated);
-      setExpenses((prev) =>
-        prev.map((e) => (e.id === updated.id ? updated : e))
+      const result = await SyncService.perform(
+        () => AppwriteService.updateExpense(editingExpense.id, updates),
+        {
+          type: 'update',
+          collection: 'expenses',
+          id: editingExpense.id,
+          data: updates,
+          timestamp: Date.now(),
+        }
       );
+
+      const finalUpdated = result || { ...editingExpense, ...updates };
+      await CacheService.updateExpense(editingExpense.id, finalUpdated);
+      
+      setExpenses((prev) =>
+        prev.map((e) => (e.id === editingExpense.id ? finalUpdated : e))
+      );
+      
       setShowEditSheet(false);
       setEditingExpense(null);
     } catch (error) {

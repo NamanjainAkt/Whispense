@@ -11,8 +11,7 @@ import { DEFAULT_CURRENCY } from '../../src/constants';
 
 export default function HomeScreen() {
   const theme = useTheme();
-  // Renamed to avoid shadowing the local appwriteExpenses / appwriteUserData variables below
-  const { user, appwriteUser: authAppwriteUser } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [userData, setUserData] = useState<User | null>(null);
@@ -32,20 +31,23 @@ export default function HomeScreen() {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
-      // Use distinct variable names to avoid shadowing context values
-      const [freshExpenses, freshUserData] = await Promise.all([
+      const [freshExpenses, freshUserData, freshCategories] = await Promise.all([
         AppwriteService.getExpenses(
           user.id,
           startOfMonth.toISOString(),
           new Date().toISOString()
         ),
         AppwriteService.getUser(user.id),
+        AppwriteService.getCategories(user.id),
       ]);
 
       setExpenses(freshExpenses);
       if (freshUserData) {
         setUserData(freshUserData);
         await CacheService.setUser(freshUserData);
+      }
+      if (freshCategories.length > 0) {
+        await CacheService.setCategories(freshCategories);
       }
       await CacheService.setExpenses(freshExpenses);
       await CacheService.setLastSync(Date.now());
@@ -95,13 +97,12 @@ export default function HomeScreen() {
           </Text>
           <Text variant="h2">{firstName}</Text>
         </View>
-        {/* Appwrite Models.User uses `name` — no `imageUrl` property exists */}
-        {authAppwriteUser?.name ? (
+        {user?.name ? (
           <View
             style={[styles.avatar, { borderColor: theme.colors.border, backgroundColor: theme.colors.primaryLight }]}
           >
             <Text variant="caption" color="primary">
-              {authAppwriteUser.name[0]?.toUpperCase()}
+              {user.name[0]?.toUpperCase()}
             </Text>
           </View>
         ) : null}

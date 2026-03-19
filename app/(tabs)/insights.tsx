@@ -6,7 +6,7 @@ import { Text, Card, Spacer, ProgressBar } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
 import { CacheService } from '../../src/services/cache';
 import { AppwriteService } from '../../src/services/appwrite';
-import { GeminiService } from '../../src/services/gemini';
+import { AIService } from '../../src/services/ai';
 import type { Expense, Category } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
 import { BarChart, PieChart } from 'react-native-chart-kit';
@@ -69,7 +69,7 @@ export default function InsightsScreen() {
       await CacheService.setExpenses(appwriteExpenses);
       await CacheService.setCategories(appwriteCategories);
 
-      const insightsData = await GeminiService.generateInsights(appwriteExpenses);
+      const insightsData = await AIService.generateInsights(appwriteExpenses);
       setInsights(insightsData);
       await CacheService.setInsightsCache(insightsData);
     } catch (error) {
@@ -95,7 +95,14 @@ export default function InsightsScreen() {
     backgroundGradientFrom: theme.colors.background,
     backgroundGradientTo: theme.colors.background,
     decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(${parseInt(theme.colors.primary.slice(1, 3), 16)}, ${parseInt(theme.colors.primary.slice(3, 5), 16)}, ${parseInt(theme.colors.primary.slice(5, 7), 16)}, ${opacity})`,
+    color: (opacity = 1) => {
+      // Robust hex to rgba conversion
+      const hex = theme.colors.primary.replace('#', '');
+      const r = parseInt(hex.length === 3 ? hex[0] + hex[0] : hex.slice(0, 2), 16);
+      const g = parseInt(hex.length === 3 ? hex[1] + hex[1] : hex.slice(2, 4), 16);
+      const b = parseInt(hex.length === 3 ? hex[2] + hex[2] : hex.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    },
     labelColor: (opacity = 1) => theme.colors.textSecondary,
     style: {
       borderRadius: 16,

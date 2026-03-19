@@ -1,18 +1,14 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useContext, useCallback, useEffect, useState, useRef } from 'react';
 import { useRouter, useSegments } from 'expo-router';
-import { Models } from 'appwrite';
-import { account } from '../services/appwrite';
+import { useUser, useClerk } from '@clerk/clerk-expo';
 import { CacheService } from '../services/cache';
 import { AppwriteService } from '../services/appwrite';
-import { signInWithGoogle, signOut as googleSignOut } from '../auth/googleAuth';
 import type { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
-  appwriteUser: Models.User<Models.Preferences> | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -22,11 +18,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
   const mounted = useRef(false);
+  const { user: clerkUser, isLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerk();
 
   const [user, setUser] = useState<User | null>(null);
-  const [appwriteUser, setAppwriteUser] = useState<Models.User<Models.Preferences> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Track mount status
   useEffect(() => {
@@ -37,25 +33,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const syncUserWithDatabase = useCallback(
-    async (session: Models.User<Models.Preferences>) => {
+    async (clerkId: string, email: string, name: string) => {
       if (!mounted.current) return;
       
       try {
-        const userId = session.$id;
-
         const cachedUser = await CacheService.getUser();
-        if (cachedUser && cachedUser.id === userId) {
+        if (cachedUser && cachedUser.id === clerkId) {
           setUser(cachedUser);
           return;
         }
 
-        let dbUser = await AppwriteService.getUser(userId);
+        let dbUser = await AppwriteService.getUser(clerkId);
 
         if (!dbUser) {
           dbUser = await AppwriteService.createUser({
-            id: userId,
-            name: session.name || 'User',
-            email: session.email || '',
+            id: clerkId,
+            name: name || 'User',
+            email: email || '',
           });
         }
 
@@ -65,72 +59,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Error syncing user with database:', error);
+      } finally {
+        if (mounted.current) {
+          setLoading(false);
+        }
       }
     },
     []
   );
 
-  const checkAuthStatus = useCallback(async () => {
-    if (!mounted.current) return;
-    
-    try {
-      const session = await account.get();
-      if (!mounted.current) return;
-      
-      setAppwriteUser(session);
-      setIsAuthenticated(true);
-      await syncUserWithDatabase(session);
-    } catch {
-      if (!mounted.current) return;
-      
-      // No active session
-      setAppwriteUser(null);
-      setUser(null);
-      setIsAuthenticated(false);
-    } finally {
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    if (isSignedIn && clerkUser) {
+      syncUserWithDatabase(
+        clerkUser.id,
+        clerkUser.primaryEmailAddress?.emailAddress || '',
+        clerkUser.fullName || clerkUser.username || 'User'
+      );
+    } else {
       if (mounted.current) {
+        setUser(null);
         setLoading(false);
       }
     }
-  }, [syncUserWithDatabase]);
-
-  // Check for existing session on mount only
-  useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
+  }, [isLoaded, isSignedIn, clerkUser, syncUserWithDatabase]);
 
   // Handle routing based on auth state
   useEffect(() => {
-    if (loading) return;
+    if (loading || !isLoaded || !mounted.current) return;
 
     const inAuthGroup = segments[0] === 'login';
 
-    if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/login');
-    } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)');
-    }
-  }, [isAuthenticated, loading, segments, router]);
+    const timeoutId = setTimeout(() => {
+      if (!mounted.current) return;
 
-  const handleSignInWithGoogle = async () => {
-    try {
-      await signInWithGoogle();
-      // After OAuth completes, check auth status
-      await checkAuthStatus();
-    } catch (error) {
-      console.error('Google sign in error:', error);
-      throw error;
-    }
-  };
+      if (!isSignedIn && !inAuthGroup) {
+        router.replace('/login');
+      } else if (isSignedIn && inAuthGroup) {
+        router.replace('/(tabs)');
+      }
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [isSignedIn, loading, isLoaded, segments, router]);
 
   const handleLogout = async () => {
     try {
-      await googleSignOut();
+      await signOut();
       await CacheService.clearAll();
       if (mounted.current) {
         setUser(null);
-        setAppwriteUser(null);
-        setIsAuthenticated(false);
       }
       router.replace('/login');
     } catch (error) {
@@ -143,9 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        appwriteUser,
-        loading,
-        signInWithGoogle: handleSignInWithGoogle,
+        loading: loading || !isLoaded,
         logout: handleLogout,
       }}
     >

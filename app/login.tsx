@@ -5,30 +5,46 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/useTheme';
 import { Text, Button, Spacer } from '../src/components/ui';
 import { useAuth } from '../src/context/AuthContext';
+import * as WebBrowser from 'expo-web-browser';
+import { useOAuth } from '@clerk/clerk-expo';
+import * as Linking from 'expo-linking';
+
+WebBrowser.maybeCompleteAuthSession();
+
+export const useWarmUpBrowser = () => {
+  React.useEffect(() => {
+    // Warm up the android browser to improve UX
+    // https://docs.expo.dev/guides/authentication/#improving-user-experience
+    void WebBrowser.warmUpAsync();
+    return () => {
+      void WebBrowser.coolDownAsync();
+    };
+  }, []);
+};
 
 export default function LoginScreen() {
+  useWarmUpBrowser();
   const theme = useTheme();
   const router = useRouter();
-  const { signInWithGoogle, user, loading } = useAuth();
-  const [isSigningIn, setIsSigningIn] = React.useState(false);
+  const { user, loading } = useAuth();
+  
+  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
 
-  // Redirect if already authenticated
-  React.useEffect(() => {
-    if (user && !loading) {
-      router.replace('/(tabs)');
-    }
-  }, [user, loading]);
-
-  const handleSignIn = async () => {
-    setIsSigningIn(true);
+  const handleSignIn = React.useCallback(async () => {
     try {
-      await signInWithGoogle();
-    } catch (error) {
-      console.error('Sign in failed:', error);
-    } finally {
-      setIsSigningIn(false);
+      const { createdSessionId, signIn, signUp, setActive } = await startOAuthFlow({
+        redirectUrl: Linking.createURL('/dashboard', { scheme: 'whispense' }),
+      });
+
+      if (createdSessionId) {
+        setActive!({ session: createdSessionId });
+      } else {
+        // Use signIn or signUp for next steps such as MFA
+      }
+    } catch (err) {
+      console.error('OAuth error', err);
     }
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -71,7 +87,6 @@ export default function LoginScreen() {
 
         <Button
           onPress={handleSignIn}
-          loading={isSigningIn}
           style={styles.googleButton}
         >
           Sign in with Google
