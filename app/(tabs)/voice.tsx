@@ -1,11 +1,16 @@
 // app/(tabs)/voice.tsx - Voice Logging Screen
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   TouchableOpacity,
   Animated,
+  Platform,
+  Alert,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Button, Card, Spacer, Chip, Input } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
@@ -17,6 +22,13 @@ import type { Category, ParsedExpense } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
 import Voice, { SpeechResultsEvent, SpeechErrorEvent } from '@react-native-voice/voice';
 import * as Speech from 'expo-speech';
+import * as Haptics from 'expo-haptics';
+
+// Bar heights for waveform (memoized)
+const BAR_HEIGHTS = Array.from({ length: 20 }, (_, i) => {
+  // Create a nice wave pattern
+  return 20 + Math.sin((i / 20) * Math.PI * 2) * 15 + Math.random() * 10;
+});
 
 export default function VoiceScreen() {
   const theme = useTheme();
@@ -27,14 +39,51 @@ export default function VoiceScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [error, setError] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   // Editable fields for Quick Edit
   const [editAmount, setEditAmount] = useState('');
   const [editItem, setEditItem] = useState('');
 
-  // Animation refs
-  const pulseAnim = useRef(new Animated.Value(0));
-  const barHeights = useRef(Array.from({ length: 20 }, () => Math.random() * 40 + 20));
+  // Animation refs - using useNativeDriver where possible
+  const pulseAnim = useRef(new Animated.Value(1));
+  const waveAnims = useRef(
+    Array.from({ length: 20 }, () => ({
+      scale: new Animated.Value(1),
+      opacity: new Animated.Value(0.6),
+    }))
+  ).current;
+
+  // Haptic feedback helper
+  const triggerHaptic = useCallback(async (type: 'light' | 'medium' | 'heavy' | 'success' = 'medium') => {
+    try {
+      if (Platform.OS === 'ios') {
+        switch (type) {
+          case 'light':
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            break;
+          case 'medium':
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            break;
+          case 'heavy':
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            break;
+          case 'success':
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            break;
+        }
+      } else {
+        // Android: use impact feedback
+        if (type === 'success') {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      }
+    } catch (e) {
+      // Haptics not available, fail silently
+    }
+  }, []);
 
   useEffect(() => {
     loadCategories();
@@ -53,6 +102,7 @@ export default function VoiceScreen() {
   const onSpeechStart = () => {
     setStatus('recording');
     setError('');
+    triggerHaptic('light');
   };
 
   const onSpeechEnd = () => {
@@ -66,8 +116,15 @@ export default function VoiceScreen() {
       setStatus('idle');
       return;
     }
-    setError(e.error?.message || 'Speech recognition error');
+    // Check for permission errors
+    if (e.error?.message?.includes('permission') || e.error?.message?.includes('Permission')) {
+      setPermissionDenied(true);
+      setError('Microphone permission denied. Please enable it in settings.');
+    } else {
+      setError(e.error?.message || 'Speech recognition error');
+    }
     setStatus('idle');
+    triggerHaptic('heavy');
   };
 
   const onSpeechResults = async (e: SpeechResultsEvent) => {
@@ -115,22 +172,23 @@ export default function VoiceScreen() {
 
   useEffect(() => {
     if (status === 'recording') {
+      // Using scale animation with native driver for better performance
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim.current, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: false,
+            toValue: 1.2,
+            duration: 600,
+            useNativeDriver: true,
           }),
           Animated.timing(pulseAnim.current, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: false,
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
           }),
         ])
       ).start();
     } else {
-      pulseAnim.current.setValue(0);
+      pulseAnim.current.setValue(1);
     }
   }, [status]);
 
@@ -160,16 +218,26 @@ export default function VoiceScreen() {
       setTranscript('');
       setParsedExpense(null);
       setError('');
+      setPermissionDenied(false);
       await Voice.start('en-IN'); // Support for Indian accent
-    } catch (e) {
+      triggerHaptic('medium');
+    } catch (e: unknown) {
       console.error(e);
-      setError('Failed to start speech recognition.');
+      // Check for permission error
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      if (errorMessage.includes('permission') || errorMessage.includes('Permission')) {
+        setPermissionDenied(true);
+        setError('Microphone permission denied. Please enable it in settings.');
+      } else {
+        setError('Failed to start speech recognition.');
+      }
     }
   };
 
   const stopListening = async () => {
     try {
       await Voice.stop();
+      triggerHaptic('light');
     } catch (e) {
       console.error(e);
     }
@@ -216,6 +284,9 @@ export default function VoiceScreen() {
 
       await CacheService.addExpense(finalExpense);
 
+      // Success feedback
+      triggerHaptic('success');
+      
       // Confirmation TTS
       Speech.speak(`Saved ${finalAmount} ${DEFAULT_CURRENCY} for ${editItem}`, { rate: 1.0 });
 
@@ -227,6 +298,7 @@ export default function VoiceScreen() {
       setSelectedCategory(null);
     } catch (err) {
       console.error('Error saving expense:', err);
+      triggerHaptic('heavy');
       setError('Failed to save. Please try again.');
     }
   };
@@ -257,10 +329,10 @@ export default function VoiceScreen() {
                 height:
                   status === 'recording'
                     ? pulseAnim.current.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [20, barHeights.current[bar]],
+                        inputRange: [0.5, 1],
+                        outputRange: [20, BAR_HEIGHTS[bar]],
                       })
-                    : 20,
+                    : BAR_HEIGHTS[bar],
               },
             ]}
           />
@@ -270,134 +342,177 @@ export default function VoiceScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Text variant="h2" center>
-        {status === 'idle' && 'Tap to speak'}
-        {status === 'recording' && 'Listening...'}
-        {status === 'processing' && 'Processing...'}
-        {status === 'parsed' && 'Review & Confirm'}
-      </Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <Text variant="h2" center style={styles.title}>
+          {status === 'idle' && 'Tap to speak'}
+          {status === 'recording' && 'Listening...'}
+          {status === 'processing' && 'Processing...'}
+          {status === 'parsed' && 'Review & Confirm'}
+        </Text>
 
-      <Spacer size="lg" />
+        <Spacer size="lg" />
 
-      {/* Waveform */}
-      {renderWaveform()}
+        {/* Waveform */}
+        {renderWaveform()}
 
-      <Spacer size="lg" />
+        <Spacer size="lg" />
 
-      {/* Transcript */}
-      {transcript ? (
-        <Card>
-          <Text variant="caption" color="textSecondary">
-            Transcript
-          </Text>
-          <Spacer size="sm" />
-          <Text variant="body">{transcript}</Text>
-        </Card>
-      ) : null}
-
-      {/* Parsed Result & Quick Edit */}
-      {status === 'parsed' && (
-        <>
-          <Spacer size="lg" />
+        {/* Transcript */}
+        {transcript ? (
           <Card>
-            <View style={styles.editRow}>
-              <View style={{ flex: 1, marginRight: 16 }}>
-                <Text variant="caption" color="textSecondary">Amount</Text>
-                <Input
-                  value={editAmount}
-                  onChangeText={setEditAmount}
-                  keyboardType="numeric"
-                  placeholder="0.00"
-                  prefix={DEFAULT_CURRENCY}
-                />
-              </View>
-              <View style={{ flex: 2 }}>
-                <Text variant="caption" color="textSecondary">What for?</Text>
-                <Input
-                  value={editItem}
-                  onChangeText={setEditItem}
-                  placeholder="e.g. Coffee"
-                />
-              </View>
-            </View>
-
-            <Spacer size="md" />
-
-            <Text variant="caption" color="textSecondary">Category</Text>
+            <Text variant="caption" color="textSecondary">
+              You said:
+            </Text>
             <Spacer size="sm" />
-            <View style={styles.chipContainer}>
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  onPress={() => setSelectedCategory(category)}
-                >
-                  <Chip
-                    selected={selectedCategory?.id === category.id}
-                    color={`${category.color}20`}
-                  >
-                    {category.name}
-                  </Chip>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Text variant="body">"{transcript}"</Text>
           </Card>
+        ) : null}
 
-          <Spacer size="lg" />
+        {/* Parsed Result & Quick Edit */}
+        {status === 'parsed' && (
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Spacer size="lg" />
+            <Card>
+              <View style={styles.editRow}>
+                <View style={styles.amountContainer}>
+                  <Text variant="caption" color="textSecondary">Amount</Text>
+                  <Spacer size="xs" />
+                  <Input
+                    value={editAmount}
+                    onChangeText={setEditAmount}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    prefix={DEFAULT_CURRENCY}
+                  />
+                </View>
+                <View style={styles.itemContainer}>
+                  <Text variant="caption" color="textSecondary">What for?</Text>
+                  <Spacer size="xs" />
+                  <Input
+                    value={editItem}
+                    onChangeText={setEditItem}
+                    placeholder="e.g. Coffee"
+                  />
+                </View>
+              </View>
 
-          <Button onPress={saveExpense}>Confirm & Save</Button>
-          <Spacer size="md" />
-          <Button variant="ghost" onPress={cancel}>
-            Discard
-          </Button>
-        </>
-      )}
+              <Spacer size="md" />
 
-      {/* Error */}
-      {error ? (
-        <>
-          <Spacer size="lg" />
-          <Text variant="body" color="error" center>
-            {error}
-          </Text>
-          <Spacer size="md" />
-          <Button variant="ghost" onPress={cancel}>
-            Try Again
-          </Button>
-        </>
-      ) : null}
+              <Text variant="caption" color="textSecondary">Category</Text>
+              <Spacer size="sm" />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipContainer}>
+                  {categories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      onPress={() => {
+                        setSelectedCategory(category);
+                        triggerHaptic('light');
+                      }}
+                      style={styles.chipWrapper}
+                    >
+                      <Chip
+                        selected={selectedCategory?.id === category.id}
+                        color={`${category.color}20`}
+                      >
+                        {category.name}
+                      </Chip>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </Card>
 
-      {/* Main Action Button */}
-      {status === 'idle' && (
-        <TouchableOpacity
-          style={[styles.micButton, { backgroundColor: theme.colors.primary }]}
-          onPress={startListening}
-        >
-          <Text variant="h2" color="white">
-            🎤
-          </Text>
-        </TouchableOpacity>
-      )}
+            <Spacer size="lg" />
 
-      {status === 'recording' && (
-        <TouchableOpacity
-          style={[styles.micButton, { backgroundColor: theme.colors.error }]}
-          onPress={stopListening}
-        >
-          <Text variant="h2" color="white">
-            ⏹
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
+            <Button onPress={saveExpense} size="lg">Confirm & Save</Button>
+            <Spacer size="md" />
+            <Button variant="ghost" onPress={cancel}>
+              Discard
+            </Button>
+          </ScrollView>
+        )}
+
+        {/* Error */}
+        {error ? (
+          <View>
+            <Spacer size="lg" />
+            <Card style={{ backgroundColor: `${theme.colors.error}10`, borderLeftWidth: 4, borderLeftColor: theme.colors.error }}>
+              <Text variant="body" color="error" center>
+                {error}
+              </Text>
+              {permissionDenied && (
+                <>
+                  <Spacer size="sm" />
+                  <Text variant="caption" color="textSecondary" center>
+                    Go to Settings → Privacy → Microphone to enable
+                  </Text>
+                </>
+              )}
+            </Card>
+            <Spacer size="md" />
+            <Button variant="outline" onPress={cancel}>
+              Try Again
+            </Button>
+          </View>
+        ) : null}
+
+        {/* Main Action Button */}
+        {status === 'idle' && (
+          <TouchableOpacity
+            style={[styles.micButton, { backgroundColor: theme.colors.primary }]}
+            onPress={startListening}
+            accessibilityLabel="Start voice recording"
+            accessibilityRole="button"
+          >
+            <Text variant="h2" color="white">
+              🎤
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {status === 'recording' && (
+          <TouchableOpacity
+            style={[styles.micButton, { backgroundColor: theme.colors.error }]}
+            onPress={stopListening}
+            accessibilityLabel="Stop voice recording"
+            accessibilityRole="button"
+          >
+            <Animated.View style={{ transform: [{ scale: pulseAnim.current }] }}>
+              <Text variant="h2" color="white">
+                ⏹
+              </Text>
+            </Animated.View>
+          </TouchableOpacity>
+        )}
+
+        {/* Processing indicator */}
+        {status === 'processing' && (
+          <View style={styles.processingContainer}>
+            <Text variant="body" color="textSecondary">Processing with AI...</Text>
+          </View>
+        )}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  keyboardView: {
+    flex: 1,
     padding: 24,
     justifyContent: 'center',
+  },
+  title: {
+    marginTop: 40,
   },
   waveform: {
     flexDirection: 'row',
@@ -419,10 +534,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
+  amountContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
+  itemContainer: {
+    flex: 2,
+  },
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  chipWrapper: {
+    marginBottom: 4,
   },
   micButton: {
     width: 80,
@@ -437,5 +562,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
+  },
+  processingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 40,
   },
 });

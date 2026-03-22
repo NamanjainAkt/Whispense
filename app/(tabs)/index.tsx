@@ -1,8 +1,10 @@
 // app/(tabs)/index.tsx - Home Dashboard
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, Button } from '../../src/components/ui';
+import { OfflineIndicator } from '../../src/components/OfflineIndicator';
 import { useAuth } from '../../src/context/AuthContext';
 import { CacheService } from '../../src/services/cache';
 import { AppwriteService } from '../../src/services/appwrite';
@@ -84,12 +86,16 @@ export default function HomeScreen() {
   const todayTotal = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+      <OfflineIndicator />
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        showsVerticalScrollIndicator={false}
+      >
       <View style={styles.header}>
         <View>
           <Text variant="caption" color="textSecondary">
@@ -198,12 +204,20 @@ export default function HomeScreen() {
 
       <Spacer size="xxl" />
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollContent: {
     padding: 16,
   },
   header: {

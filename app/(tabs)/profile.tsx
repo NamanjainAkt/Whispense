@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx - Profile & Settings Screen
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,10 @@ import {
   Switch,
   Alert,
   Share,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, Button, Input } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
@@ -29,6 +32,19 @@ export default function ProfileScreen() {
   const [voiceConfirmation, setVoiceConfirmation] = useState(true);
   const [quickConfirm, setQuickConfirm] = useState(false);
   const [totalExpenses, setTotalExpenses] = useState(0);
+
+  // Haptic feedback helper
+  const triggerHaptic = useCallback(async () => {
+    try {
+      if (Platform.OS === 'ios') {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } else {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (e) {
+      // Haptics not available, fail silently
+    }
+  }, []);
 
   // Load user from cache on mount
   useEffect(() => {
@@ -120,28 +136,31 @@ export default function ProfileScreen() {
   const avatarLetter = displayName[0]?.toUpperCase() ?? 'U';
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
-      {/* Profile Section */}
-      <Card shadow="medium">
-        <View style={styles.profileHeader}>
-          <View
-            style={[
-              styles.avatar,
-              { backgroundColor: theme.colors.primaryLight },
-            ]}
-          >
-            <Text variant="h2" color="primary">
-              {avatarLetter}
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Section */}
+        <Card shadow="medium">
+          <View style={styles.profileHeader}>
+            <View
+              style={[
+                styles.avatar,
+                { backgroundColor: theme.colors.primaryLight },
+              ]}
+            >
+              <Text variant="h2" color="primary">
+                {avatarLetter}
+              </Text>
+            </View>
+            <Spacer size="md" />
+            <Text variant="h2">{displayName}</Text>
+            <Text variant="caption" color="textSecondary">
+              {displayEmail}
             </Text>
           </View>
-          <Spacer size="md" />
-          <Text variant="h2">{displayName}</Text>
-          <Text variant="caption" color="textSecondary">
-            {displayEmail}
-          </Text>
-        </View>
 
         <Spacer size="lg" />
         <View style={styles.statRow}>
@@ -216,9 +235,13 @@ export default function ProfileScreen() {
           </View>
           <Switch
             value={voiceConfirmation}
-            onValueChange={setVoiceConfirmation}
+            onValueChange={(value) => {
+              setVoiceConfirmation(value);
+              triggerHaptic();
+            }}
             trackColor={{ false: theme.colors.border, true: theme.colors.primaryLight }}
             thumbColor={voiceConfirmation ? theme.colors.primary : theme.colors.textMuted}
+            accessibilityLabel="Toggle voice confirmation"
           />
         </View>
 
@@ -231,9 +254,13 @@ export default function ProfileScreen() {
           </View>
           <Switch
             value={quickConfirm}
-            onValueChange={setQuickConfirm}
+            onValueChange={(value) => {
+              setQuickConfirm(value);
+              triggerHaptic();
+            }}
             trackColor={{ false: theme.colors.border, true: theme.colors.primaryLight }}
             thumbColor={quickConfirm ? theme.colors.primary : theme.colors.textMuted}
+            accessibilityLabel="Toggle quick auto-confirm"
           />
         </View>
       </Card>
@@ -262,12 +289,20 @@ export default function ProfileScreen() {
 
       <Spacer size="xxl" />
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollContent: {
     padding: 16,
   },
   profileHeader: {

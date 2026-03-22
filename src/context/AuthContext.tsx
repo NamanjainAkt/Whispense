@@ -10,6 +10,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   logout: () => Promise<void>;
+  appwriteUser: { name: string; email: string } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,6 +24,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Appwrite user info (from Clerk)
+  const appwriteUser = clerkUser ? { 
+    name: clerkUser.fullName || clerkUser.username || 'User',
+    email: clerkUser.primaryEmailAddress?.emailAddress || '',
+  } : null;
 
   // Track mount status
   useEffect(() => {
@@ -124,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         loading: loading || !isLoaded,
         logout: handleLogout,
+        appwriteUser,
       }}
     >
       {children}

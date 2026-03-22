@@ -1,17 +1,21 @@
 // app/(tabs)/expenses.tsx - Expenses List Screen
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
+  RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/useTheme';
 import { Text, Card, Spacer, Chip, Input, BottomSheet, Button } from '../../src/components/ui';
+import { OfflineIndicator } from '../../src/components/OfflineIndicator';
 import { useAuth } from '../../src/context/AuthContext';
 import { CacheService } from '../../src/services/cache';
 import { AppwriteService } from '../../src/services/appwrite';
+import SyncService from '../../src/services/sync';
 import type { Expense, Category } from '../../src/types';
 import { DEFAULT_CURRENCY } from '../../src/constants';
 
@@ -147,7 +151,8 @@ export default function ExpensesScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+      <OfflineIndicator />
       {/* Month Selector */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.monthScroll}>
         {Array.from({ length: 12 }, (_, i) => {
@@ -268,7 +273,7 @@ export default function ExpensesScreen() {
           onDelete={handleDelete}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

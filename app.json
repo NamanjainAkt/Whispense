@@ -14,7 +14,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.whispense.app"
+      "bundleIdentifier": "com.whispense.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Whispense needs access to your microphone to record voice commands for expense tracking.",
+        "NSSpeechRecognitionUsageDescription": "Whispense uses speech recognition to parse your voice commands into expenses."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +28,13 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": true,
-      "package": "com.whispense.app"
+      "package": "com.whispense.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,6 +46,12 @@
         {
           "icon": "./assets/icon.png",
           "color": "#6366F1"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Whispense needs access to your microphone to record voice commands."
         }
       ]
     ]

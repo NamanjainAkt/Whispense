@@ -45,7 +45,7 @@ class AudioService {
       let base64 = '';
       if (uri) {
         base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64',
         });
       }
 
@@ -53,7 +53,7 @@ class AudioService {
       return {
         uri,
         base64,
-        duration: status.isFinished ? status.durationMillis : 0,
+        duration: status.durationMillis ?? 0,
       };
     } catch (err) {
       console.error('Failed to stop recording', err);

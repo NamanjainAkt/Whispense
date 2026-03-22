@@ -4,17 +4,30 @@ import {
   TextInput,
   StyleSheet,
   TextInputProps,
+  View,
+  Text,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import type { Theme } from '../../theme/types';
 
 interface Props extends TextInputProps {
   error?: boolean;
+  prefix?: string;
 }
 
 function createStyles(theme: Theme) {
   return StyleSheet.create({
+    container: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    prefix: {
+      marginRight: theme.spacing.sm,
+      fontSize: theme.fontSizes.base,
+      color: theme.colors.textSecondary,
+    },
     input: {
+      flex: 1,
       backgroundColor: theme.colors.surface,
       borderWidth: 1,
       borderColor: theme.colors.border,
@@ -33,23 +46,26 @@ function createStyles(theme: Theme) {
   });
 }
 
-export function Input({ error = false, style, ...props }: Props) {
+export function Input({ error = false, prefix, style, ...props }: Props) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const [isFocused, setIsFocused] = React.useState(false);
 
   return (
-    <TextInput
-      style={[
-        styles.input,
-        isFocused && styles.focused,
-        error && styles.error,
-        style,
-      ]}
-      placeholderTextColor={theme.colors.textMuted}
-      onFocus={() => setIsFocused(true)}
-      onBlur={() => setIsFocused(false)}
-      {...props}
-    />
+    <View style={styles.container}>
+      {prefix && <Text style={styles.prefix}>{prefix}</Text>}
+      <TextInput
+        style={[
+          styles.input,
+          isFocused && styles.focused,
+          error && styles.error,
+          style,
+        ]}
+        placeholderTextColor={theme.colors.textMuted}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        {...props}
+      />
+    </View>
   );
 }

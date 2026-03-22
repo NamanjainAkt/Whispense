@@ -1,8 +1,9 @@
 // app/(tabs)/insights.tsx - Insights Screen
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/useTheme';
-import { Text, Card, Spacer, ProgressBar } from '../../src/components/ui';
+import { Text, Card, Spacer } from '../../src/components/ui';
 import { useAuth } from '../../src/context/AuthContext';
 import { CacheService } from '../../src/services/cache';
 import { AppwriteService } from '../../src/services/appwrite';
@@ -162,16 +163,26 @@ export default function InsightsScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
-        <Text variant="body" color="textSecondary">
-          Generating insights...
-        </Text>
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.loadingContainer}>
+          <Text variant="h3" style={styles.loadingTitle}>Generating insights...</Text>
+          <Spacer size="lg" />
+          <SkeletonCard />
+          <Spacer size="lg" />
+          <SkeletonChart />
+          <Spacer size="lg" />
+          <SkeletonChart />
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
+  // Check if there's any expense data
+  const hasExpenseData = expenses.length > 0;
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+    <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
       {/* Financial Health Score */}
       <Card shadow="medium">
         <Text variant="caption" color="textSecondary" center>
@@ -280,6 +291,7 @@ export default function InsightsScreen() {
 
       <Spacer size="xxl" />
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -325,4 +337,45 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderLeftWidth: 4,
   },
+  loadingContainer: {
+    padding: 16,
+    paddingTop: 40,
+  },
+  loadingTitle: {
+    textAlign: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  skeleton: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 8,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
 });
+
+// Skeleton loading components
+function SkeletonCard() {
+  const theme = useTheme();
+  return (
+    <View style={styles.skeleton}>
+      <Card>
+        <View style={[styles.skeleton, { height: 120, width: '100%' }]} />
+      </Card>
+    </View>
+  );
+}
+
+function SkeletonChart() {
+  return (
+    <View style={[styles.skeleton, { height: 200, width: '100%' }]} />
+  );
+}
