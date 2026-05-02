@@ -18,7 +18,7 @@ AI-powered expense tracking app with voice input. Built with React Native, Expo,
 - **Backend**: Appwrite (self-hosted on Railway)
 - **Authentication**: Clerk with Google Sign-In
 - **AI**: Gemini 1.5 Flash API (free tier)
-- **Storage**: MMKV for local cache
+- **Storage**: AsyncStorage for local cache
 - **Styling**: StyleSheet (no NativeWind/Tailwind)
 
 ## Project Structure
@@ -83,7 +83,7 @@ npx expo start
 1. **Single Theme Source**: All colors, spacing, and typography come from `src/theme/theme.ts`
 2. **No Hardcoded Values**: Components never define their own colors
 3. **StyleSheet Only**: No NativeWind or CSS-in-JS libraries
-4. **Cache-First Reads**: MMKV is the primary data source, Appwrite is the sync target
+4. **Cache-First Reads**: AsyncStorage is the primary data source, Appwrite is the sync target
 5. **Write-Through**: All writes go to Appwrite first, then cache on success
 
 ## Key Rules

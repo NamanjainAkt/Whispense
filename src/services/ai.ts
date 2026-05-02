@@ -1,18 +1,9 @@
 // src/services/ai.ts
-import { Ollama } from 'ollama';
 import type { Expense, ParsedExpense } from '../types';
 
-// Ollama Cloud Configuration
-const OLLAMA_API_URL = process.env.EXPO_PUBLIC_OLLAMA_API_URL || 'https://ollama.com';
-const OLLAMA_API_KEY = process.env.EXPO_PUBLIC_OLLAMA_API_KEY || '';
-const OLLAMA_MODEL = process.env.EXPO_PUBLIC_OLLAMA_MODEL || 'qwen2.5:latest';
-
-const ollama = new Ollama({
-  host: OLLAMA_API_URL,
-  headers: {
-    Authorization: `Bearer ${OLLAMA_API_KEY}`,
-  },
-});
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_MODEL = 'gemini-1.5-flash';
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 export const AIService = {
   parseExpense: async (
@@ -43,12 +34,22 @@ Respond ONLY in valid JSON format:
 }
 `;
 
-      const response = await ollama.chat({
-        model: OLLAMA_MODEL,
-        messages: [{ role: 'user', content: prompt }],
+      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1 },
+        }),
       });
 
-      const text = response.message.content;
+      if (!response.ok) {
+        console.error('Gemini API error:', response.status, await response.text());
+        return null;
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return null;
 
@@ -62,7 +63,7 @@ Respond ONLY in valid JSON format:
         category: parsed.category || availableCategories[0] || 'Other',
       };
     } catch (error) {
-      console.error('Ollama parse error:', error);
+      console.error('Gemini parse error:', error);
       return null;
     }
   },
@@ -84,7 +85,7 @@ Respond ONLY in valid JSON format:
         amount: e.amount,
         item: e.item,
         category: e.categoryId,
-        date: new Date(e.date).toLocaleDateString('en-US', { weekday: 'long' })
+        date: new Date(e.date).toLocaleDateString('en-US', { weekday: 'long' }),
       }));
 
       const prompt = `
@@ -97,14 +98,21 @@ Data: ${JSON.stringify(recentExpenses)}
 Total: ₹${totalSpent}
 `;
 
-      const response = await ollama.chat({
-        model: OLLAMA_MODEL,
-        messages: [{ role: 'user', content: prompt }],
+      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2 },
+        }),
       });
 
-      const text = response.message.content;
+      if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON');
+      if (!jsonMatch) throw new Error('No JSON in response');
 
       const parsed = JSON.parse(jsonMatch[0]);
       return {
@@ -117,7 +125,7 @@ Total: ₹${totalSpent}
         },
       };
     } catch (error) {
-      console.error('Ollama insights error:', error);
+      console.error('Gemini insights error:', error);
       return {
         healthScore: 50,
         suggestions: ['Log more expenses for AI insights'],

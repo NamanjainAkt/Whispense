@@ -1,52 +1,78 @@
 # Whispense: Technical Specification & Roadmap
 
-This document outlines the remaining development tasks required to transition Whispense from a prototype with mocked data to a fully functional voice-controlled expense tracker.
+This document outlines the development tasks and current progress of Whispense.
 
 ## 1. Project Overview
 Whispense is a React Native (Expo) application that uses Gemini AI to parse natural language voice inputs into structured expense data, stored in Appwrite.
 
-## 2. Technical Gap Analysis
-| Feature | Current Status | Requirement |
-| :--- | :--- | :--- |
-| **Voice Input** | Mocked (Hardcoded string) | Real-time audio recording + STT (Speech-to-Text) |
-| **Expense Logic** | Functional (Gemini) | Refine category mapping & currency detection |
-| **Persistence** | Functional (Appwrite) | Robust offline sync & error handling |
-| **Insights** | Functional (Gemini) | Historical data visualization (Charts) |
-| **User Profile** | Basic | Budgeting goals & multi-currency support |
+## 2. Current Progress Status
 
----
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| **Authentication** | ✅ Complete | Clerk + Google OAuth working |
+| **Voice Input** | 🚧 Partial | Uses @react-native-voice, needs dev build |
+| **AI Parsing** | ✅ Fixed | Now using Gemini REST API (was Ollama) |
+| **Expense CRUD** | ✅ Complete | Full Appwrite integration |
+| **Offline Sync** | ✅ Complete | NetInfo + AsyncStorage queue |
+| **Charts/Insights** | ✅ Complete | BarChart + PieChart implemented |
+| **User Profile** | ✅ Complete | Budget settings, CSV export |
+| **Push Notifications** | 🚧 Partial | Service exists, alerts not triggered |
+| **Dark Mode** | ⏳ Pending | Theme structure ready |
 
 ## 3. Implementation Phases
 
-### Phase 1: Native Voice Integration (CRITICAL)
-**Goal:** Replace `mockTranscript` with actual user speech.
-- **Library:** `expo-av` for recording and `google-cloud-speech` (or Whisper API/On-device STT).
-- **Task 1.1:** Implement `AudioService` using `expo-av`.
-- **Task 1.2:** Integrate a Speech-to-Text provider to convert audio buffers to text.
-- **Task 1.3:** Update `voice.tsx` to handle permissions and recording states.
+### Phase 1: Core Functionality ✅ MOSTLY COMPLETE
+- ✅ **Task 1.1:** Implement `AudioService` using `expo-av`
+- ✅ **Task 1.2:** AI integration with Gemini API
+- ✅ **Task 1.3:** Voice.tsx handles permissions and recording states
 
-### Phase 2: Data Visualization & Insights
-**Goal:** Make financial data actionable.
-- **Task 2.1:** Integrate `react-native-chart-kit`.
-- **Task 2.2:** Build a "Spending Trends" chart in `insights.tsx`.
-- **Task 2.3:** Implement "Category Breakdown" (Pie Chart).
+### Phase 2: Data Visualization & Insights ✅ COMPLETE
+- ✅ **Task 2.1:** Integrated `react-native-chart-kit`
+- ✅ **Task 2.2:** Built "Spending Trends" chart in insights.tsx
+- ✅ **Task 2.3:** Implemented "Category Breakdown" (Pie Chart)
 
-### Phase 3: Robust Offline Sync
-**Goal:** Ensure zero data loss on poor connections.
-- **Task 3.1:** Enhance `CacheService` to use `NetInfo` for automatic background syncing.
-- **Task 3.2:** Implement conflict resolution for edited expenses.
+### Phase 3: Robust Offline Sync ✅ COMPLETE
+- ✅ **Task 3.1:** CacheService uses NetInfo for background syncing
+- ✅ **Task 3.2:** Basic conflict resolution implemented
 
-### Phase 4: UI/UX Polishing
-**Goal:** Premium feel.
-- **Task 4.1:** Add micro-interactions (Lottie animations for voice waves).
-- **Task 4.2:** Implement "Quick Edit" for parsed expenses before saving.
+### Phase 4: UI/UX Polish 🚧 IN PROGRESS
+- ⏳ **Task 4.1:** Add Lottie animations for voice waves
+- ✅ **Task 4.2:** Quick Edit for parsed expenses (implemented in voice.tsx)
+
+### Phase 5: Production Readiness ⏳ PENDING
+- ⏳ **Task 5.1:** Add error boundaries
+- ⏳ **Task 5.2:** Implement budget alert notifications
+- ⏳ **Task 5.3:** Add loading skeletons
+- ⏳ **Task 5.4:** EAS build configuration
+
+---
+
+## 4. Recent Fixes (May 2026)
+1. ✅ Fixed AI service - replaced incompatible Ollama SDK with Gemini REST API
+2. ✅ Updated documentation to match implementation (MMKV → AsyncStorage)
+3. ✅ Removed unused googleAuth.ts file
+4. ✅ Created .env.example with correct environment variables
+5. ✅ Removed ollama dependency from package.json
 
 ---
 
-## 4. Development Strategy
-1. **Switch to Development Builds:** Essential for native audio hooks.
-2. **Modular Services:** Keep `AudioService` independent of `GeminiService`.
-3. **Test-Driven:** Validate STT accuracy with various accents/languages (Hinglish).
+## 5. Next Steps (Prioritized)
+
+### 🔥 Immediate (Before Testing)
+1. **Run `npm install`** to fix dependency issues
+2. **Create development build** (`npx expo run:android`) - required for @react-native-voice
+3. **Test complete voice flow** with real Gemini API key
+
+### 🏗️ High Priority
+4. Add budget alert notifications (notifications.ts exists but not triggered)
+5. Add error boundaries to prevent crashes
+6. Test offline sync thoroughly
+
+### ✨ Medium Priority
+7. Add Lottie animations for voice wave visualization
+8. Implement dark mode (theme structure ready)
+9. Add loading skeletons for better UX
 
 ---
-*Document generated on March 14, 2026*
+
+*Last updated: May 2026*
